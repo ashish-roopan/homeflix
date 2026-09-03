@@ -4,7 +4,8 @@ A Netflix-style launcher for the movies you download. Homeflix is a small
 Electron app for macOS and Windows. It watches your movies folder (default:
 `~/Documents/MOVIES` on macOS, `E:\` on Windows), works out each film's title and year from the file
 name, pulls the poster, backdrop, rating, runtime and overview from TMDB, and
-shows everything in a Netflix-like UI with a built-in player.
+shows everything in a Netflix-like UI with a built-in player. The big banner at
+the top rotates through recent and top-rated titles every few seconds.
 
 ## Run it
 
@@ -49,6 +50,10 @@ still lists your files, just with placeholder posters.
 - **TMDB API key**: free at <https://www.themoviedb.org/settings/api>
   (either the "API Key" or the "API Read Access Token" works). Paste it in
   Settings (bottom of the left rail).
+- **Movies folder**: change it in Settings. Sub-folders are scanned too.
+- **Ignore files smaller than**: defaults to 300 MB so samples, clips and trailers are skipped.
+  This applies to movies. TV episodes are legitimately small, so they only have to clear a
+  fixed 30 MB floor.
 
 The layout is Netflix's TV app: a left rail with **Search, Home, Series,
 Movies** and, at the bottom, **Rescan** and **Settings** (hover or focus it to
@@ -56,10 +61,6 @@ see the labels). Home mixes everything; Series and Movies show only their kind.
 The "Browse by" chips under the hero regroup the current page by genre,
 language, rating or decade. Rows like Recently added, All titles, Downloading
 and Needs a match sit at the bottom of each page.
-- **Movies folder**: change it in Settings. Sub-folders are scanned too.
-- **Ignore files smaller than**: defaults to 300 MB so samples, clips and trailers are skipped.
-  This applies to movies. TV episodes are legitimately small, so they only have to clear a
-  fixed 30 MB floor.
 
 Data lives in `~/Library/Application Support/homeflix/` on macOS and
 `%APPDATA%\homeflix\` on Windows: `settings.json`, `library.json` (+ `.bak`),

@@ -6,6 +6,7 @@
   document.body.dataset.platform = UI.platform; // styles.css adjusts the top bar per platform
   const STALE_PROGRESS_MS = 5 * 60 * 1000;
   const STRUCTURAL_DEBOUNCE_MS = 4000;
+  const HERO_ROTATE_MS = 8000; // the big banner moves on to the next title this often
 
   const state = {
     settings: null,
@@ -20,7 +21,8 @@
     playing: null, // movie or episode
     playingShow: null,
     firstRun: false,
-    featuredIds: {}, // page -> id of the hero title
+    heroIndex: {}, // page -> position in the rotating hero pool
+    heroTimer: null,
     listView: null, // { title, ids }
     banners: { tmdbDown: false, keyDismissed: false, invalidKey: false },
     structuralTimer: null,
@@ -46,7 +48,6 @@
     state.shows = lib.shows || [];
     state.byId = new Map([...lib.movies.map((m) => [m.id, m]), ...state.shows.map((s) => [s.id, s])]);
     state.meta = { folderMissing: lib.folderMissing, moviesDir: lib.moviesDir, failedDirs: lib.failedDirs || [] };
-    for (const k of Object.keys(state.featuredIds)) if (!state.byId.has(state.featuredIds[k])) delete state.featuredIds[k];
   }
 
   /** Netflix-style pages: Home shows everything, Series and Movies only their kind. */
@@ -273,19 +274,36 @@
     return { ...m, dupCount: m.dupCount || 1, dupes: m.dupes || [] };
   }
 
-  function pickFeatured(items) {
-    const remembered = state.featuredIds[state.page];
-    if (remembered) {
-      const cur = items.find((m) => m.id === remembered);
-      if (cur && cur.status === 'matched' && !cur.missing) return cur;
-    }
+  /** Titles worth a banner: the most recent additions plus a few top-rated ones, backdrops only. */
+  function heroPool(items) {
     const good = items.filter((m) => m.status === 'matched' && m.backdropUrl && !m.missing && !m.downloading);
     const pool = good.length ? good : items.filter((m) => !m.missing);
-    if (!pool.length) return items[0] || null;
-    const recent = [...pool].sort((a, b) => (b.addedAt || '').localeCompare(a.addedAt || '')).slice(0, 8);
-    const pick = recent[Math.floor(Date.now() / 86400000) % recent.length];
-    if (pick.status === 'matched') state.featuredIds[state.page] = pick.id;
-    return pick;
+    if (!pool.length) return items.slice(0, 1);
+    const recent = [...pool].sort(byAddedDesc).slice(0, 10);
+    const top = [...pool].sort(byRatingDesc).filter((m) => !recent.includes(m)).slice(0, 6);
+    return [...recent, ...top];
+  }
+  function pickFeatured(items) {
+    const pool = heroPool(items);
+    if (!pool.length) return null;
+    const i = (state.heroIndex[state.page] || 0) % pool.length;
+    state.heroIndex[state.page] = i;
+    return pool[i];
+  }
+  /** Swap the banner in place every HERO_ROTATE_MS, unless the user is looking at or using it. */
+  function startHeroRotation() {
+    clearInterval(state.heroTimer);
+    state.heroTimer = setInterval(() => {
+      if (state.view !== 'home' || state.query || !document.getElementById('overlay').hidden || document.hidden) return;
+      const heroEl = viewEl.querySelector('.hero');
+      if (!heroEl || heroEl.matches(':hover') || heroEl.contains(document.activeElement)) return;
+      const pool = heroPool(pageItems(allItems()));
+      if (pool.length < 2) return;
+      state.heroIndex[state.page] = ((state.heroIndex[state.page] || 0) + 1) % pool.length;
+      const fresh = UI.renderHero(pool[state.heroIndex[state.page]], { onPlay: handlers.onPlay, onInfo: handlers.onOpen });
+      fresh.classList.add('hero-enter');
+      heroEl.replaceWith(fresh);
+    }, HERO_ROTATE_MS);
   }
 
   // ---------- grouping ----------
@@ -501,6 +519,7 @@
   // ---------- rendering ----------
   function render() {
     document.body.dataset.view = state.view;
+    clearInterval(state.heroTimer);
     if (state.view === 'settings') {
       UI.renderSettings(viewEl, state.settings, {
         firstRun: state.firstRun,
@@ -708,6 +727,7 @@
     topbar.classList.toggle('is-scrolled', scrollY > 20 || Boolean(q));
     renderProgress();
     renderBanners();
+    startHeroRotation();
     if ((q || state.focusSearch) && document.activeElement !== searchInput) {
       searchInput.focus();
       searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
