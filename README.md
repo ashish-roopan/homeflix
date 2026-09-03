@@ -2,7 +2,7 @@
 
 A Netflix-style launcher for the movies you download. Homeflix is a small
 Electron app for macOS and Windows. It watches your movies folder (default:
-`~/Documents/MOVIES`), works out each film's title and year from the file
+`~/Documents/MOVIES` on macOS, `E:\` on Windows), works out each film's title and year from the file
 name, pulls the poster, backdrop, rating, runtime and overview from TMDB, and
 shows everything in a Netflix-like UI with a built-in player.
 
@@ -42,7 +42,7 @@ CSS artwork in `build/make-icon.js` (the `.icns` is built from the PNG with
 
 ## First launch
 
-If `~/Documents/MOVIES` exists it is used automatically and you land on the
+If the default folder (`~/Documents/MOVIES` on macOS, `E:\` on Windows) exists it is used automatically and you land on the
 home screen right away. Without a TMDB key a banner offers to add one; the app
 still lists your files, just with placeholder posters.
 
@@ -50,7 +50,7 @@ still lists your files, just with placeholder posters.
   (either the "API Key" or the "API Read Access Token" works). Paste it in
   Settings (gear icon, top right).
 - **Movies folder**: change it in Settings. Sub-folders are scanned too.
-- **Ignore files smaller than**: defaults to 50 MB so samples and clips are skipped.
+- **Ignore files smaller than**: defaults to 300 MB so samples, clips and trailers are skipped.
 
 Data lives in `~/Library/Application Support/homeflix/` on macOS and
 `%APPDATA%\homeflix\` on Windows: `settings.json`, `library.json` (+ `.bak`),

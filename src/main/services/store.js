@@ -10,12 +10,13 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const DEFAULT_MOVIES_DIR = path.join(os.homedir(), 'Documents', 'MOVIES');
+// Windows: the movies live on the E: drive; elsewhere ~/Documents/MOVIES. Used only when no folder is set yet.
+const DEFAULT_MOVIES_DIR = process.platform === 'win32' ? 'E:\\' : path.join(os.homedir(), 'Documents', 'MOVIES');
 
 const DEFAULT_SETTINGS = {
   moviesDir: null,
   tmdbApiKey: null,
-  minFileSizeMB: 50,
+  minFileSizeMB: 300,
 };
 
 const EMPTY_LIBRARY = () => ({ version: 3, updatedAt: null, movies: {}, shows: {} });
