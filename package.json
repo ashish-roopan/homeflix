@@ -1,0 +1,23 @@
+{
+  "name": "homeflix",
+  "version": "0.1.0",
+  "description": "Homeflix: a Netflix-style launcher for your local movie folder",
+  "main": "src/main/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test 'test/*.test.js'",
+    "test:parser": "node --test test/parser.test.js",
+    "smoke": "bash test/smoke.sh",
+    "dist": "electron-packager . Homeflix --platform=darwin --arch=arm64 --out=dist --overwrite --icon=build/icon.icns --app-bundle-id=com.ashish.homeflix --app-category-type=public.app-category.entertainment --ignore='^/(test|build|dist|\\.git|\\.claude)($|/)' --ignore='\\.command$'"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "parse-torrent-title": "^3.0.1"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "electron": "^44.1.1"
+  },
+  "productName": "Homeflix"
+}
