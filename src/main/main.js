@@ -52,8 +52,16 @@ async function createWindow() {
     minHeight: 600,
     title: 'Homeflix',
     backgroundColor: '#141414',
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 16, y: 18 },
+    // macOS: hide the title bar but keep the traffic lights inset. Windows/Linux: hide it and
+    // let Chromium draw the caption buttons over the top bar (styles.css pads the bar for them).
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 18 } }
+      : {
+          titleBarStyle: 'hidden',
+          titleBarOverlay: { color: '#141414', symbolColor: '#ffffff', height: 48 },
+          // Window/taskbar icon (macOS takes it from the .app bundle instead).
+          icon: path.join(__dirname, '..', '..', 'build', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
+        }),
     show: false,
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),

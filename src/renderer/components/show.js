@@ -142,7 +142,7 @@ UI.openShowDetail = function openShowDetail(show, { onPlayEpisode, onChanged, on
           h('div.modal-meta', meta.map((m, i) => [i ? h('span.dot', '•') : null, h('span', m)])),
           h('div.modal-actions',
             h('button.btn.btn-primary.btn-large', { disabled: !next || next.missing, onClick: () => { if (next) { close(); onPlayEpisode(next, show); } } }, UI.icon('play'), h('span', playLabel)),
-            h('button.btn.btn-glass', { onClick: () => window.api.revealInFinder(show.seasons[0].episodes[0].id).catch(fail) }, UI.icon('folder'), h('span', 'Show in Finder'))
+            h('button.btn.btn-glass', { onClick: () => window.api.revealInFinder(show.seasons[0].episodes[0].id).catch(fail) }, UI.icon('folder'), h('span', UI.revealLabel))
           )
         )
       )

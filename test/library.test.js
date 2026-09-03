@@ -5,7 +5,7 @@ const path = require('path');
 const fsp = require('fs/promises');
 const { Store } = require('../src/main/services/store');
 const { LibraryService, idFor } = require('../src/main/services/library');
-const { buildSmallTree, sparseFile, tmpDir, mockTmdb, MiB } = require('./fixtures');
+const { buildSmallTree, sparseFile, tmpDir, mockTmdb, lockDir, unlockDir, MiB } = require('./fixtures');
 
 async function setup(files) {
   const tree = await buildSmallTree(files);
@@ -141,16 +141,16 @@ test('library: deleted file is removed; missing folder never wipes the library',
 test('library: unreadable subfolder marks entries missing instead of deleting', async (t) => {
   const s = await setup({ 'Top.2001.mkv': 60 * MiB, 'Locked/Inside.2002.mkv': 61 * MiB });
   t.after(async () => {
-    await fsp.chmod(path.join(s.tree.root, 'Locked'), 0o755).catch(() => {});
+    await unlockDir(path.join(s.tree.root, 'Locked'));
     await s.cleanup();
   });
   await s.lib.scan();
   assert.equal(movies(s.lib).length, 2);
-  await fsp.chmod(path.join(s.tree.root, 'Locked'), 0o000);
+  await lockDir(path.join(s.tree.root, 'Locked'));
   await s.lib.scan();
   assert.equal(movies(s.lib).length, 2, 'kept');
   assert.equal(byName(s.lib, 'Inside.2002.mkv').missing, true);
-  await fsp.chmod(path.join(s.tree.root, 'Locked'), 0o755);
+  await unlockDir(path.join(s.tree.root, 'Locked'));
   await s.lib.scan();
   assert.equal(byName(s.lib, 'Inside.2002.mkv').missing, false);
 });

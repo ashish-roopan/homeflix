@@ -1,21 +1,69 @@
 'use strict';
 // Builds a deliberately hostile temporary movie tree for tests.
 // Video files are sparse (truncate), so 1500 x 60 MiB costs no disk space on APFS.
+// NTFS allocates the full size on truncate unless the file is flagged sparse first,
+// so on Windows each big file is marked with `fsutil sparse setflag` before growing.
 
 const fsp = require('fs/promises');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execFile } = require('child_process');
 
 const MiB = 1024 * 1024;
+const IS_WIN = process.platform === 'win32';
+
+function run(cmd, args) {
+  return new Promise((resolve, reject) => {
+    execFile(cmd, args, { windowsHide: true }, (err, stdout, stderr) => (err ? reject(new Error(`${cmd} ${args.join(' ')}: ${stderr || err.message}`)) : resolve(stdout)));
+  });
+}
+
+// Bound the number of concurrent helper processes (1500 fixture files are created in parallel).
+let inflight = 0;
+const waiters = [];
+async function limited(fn) {
+  if (inflight >= 32) await new Promise((r) => waiters.push(r));
+  inflight++;
+  try {
+    return await fn();
+  } finally {
+    inflight--;
+    const next = waiters.shift();
+    if (next) next();
+  }
+}
 
 async function sparseFile(file, bytes) {
   await fsp.mkdir(path.dirname(file), { recursive: true });
-  const fh = await fsp.open(file, 'w');
+  let fh = await fsp.open(file, 'w');
   try {
-    if (bytes > 0) await fh.truncate(bytes);
+    if (bytes > 0) {
+      if (IS_WIN && bytes >= MiB) {
+        await fh.close();
+        await limited(() => run('fsutil', ['sparse', 'setflag', file]));
+        fh = await fsp.open(file, 'r+');
+      }
+      await fh.truncate(bytes);
+    }
   } finally {
     await fh.close();
+  }
+}
+
+/** Make a directory unlistable for the current user (chmod 000; on Windows an icacls deny ACE). */
+async function lockDir(dir) {
+  if (IS_WIN) await run('icacls', [dir, '/deny', `${os.userInfo().username}:(RD)`]);
+  else await fsp.chmod(dir, 0o000);
+}
+
+/** Undo lockDir. Never throws. */
+async function unlockDir(dir) {
+  try {
+    if (IS_WIN) await run('icacls', [dir, '/remove:d', os.userInfo().username]);
+    else await fsp.chmod(dir, 0o755);
+  } catch {
+    /* already unlocked or gone */
   }
 }
 
@@ -87,14 +135,17 @@ async function buildHostileTree({ count = 1500, dirs = 30 } = {}) {
 
   await Promise.all(jobs);
 
-  // 10) symlink loop and a symlink to a file (neither followed)
-  await fsp.symlink('..', path.join(root, 'Folder 6', 'loop'));
-  await fsp.symlink(path.join(root, 'Folder 2', 'Twin.Movie.2015.1080p.mkv'), path.join(root, 'Folder 6', 'Link.Movie.2015.mkv'));
+  // 10) symlink loop and a symlink to a file (neither followed). Windows: a junction needs no
+  // privilege, a file symlink needs Developer Mode, so that one is best-effort.
+  await fsp.symlink(IS_WIN ? root : '..', path.join(root, 'Folder 6', 'loop'), IS_WIN ? 'junction' : undefined);
+  await fsp.symlink(path.join(root, 'Folder 2', 'Twin.Movie.2015.1080p.mkv'), path.join(root, 'Folder 6', 'Link.Movie.2015.mkv')).catch((err) => {
+    if (!IS_WIN) throw err;
+  });
 
   // 11) unreadable directory containing a video
   const unreadableDir = path.join(root, 'Locked');
   await sparseFile(path.join(unreadableDir, 'Locked.Movie.2012.mkv'), 60 * MiB);
-  await fsp.chmod(unreadableDir, 0o000);
+  await lockDir(unreadableDir);
 
   const expected = {
     // regular movies + deep10 + twin x2 + tiny clip (only with minFileSizeMB=0) + episodes
@@ -105,7 +156,7 @@ async function buildHostileTree({ count = 1500, dirs = 30 } = {}) {
   };
 
   const cleanup = async () => {
-    await fsp.chmod(unreadableDir, 0o755).catch(() => {});
+    await unlockDir(unreadableDir);
     await fsp.rm(root, { recursive: true, force: true });
   };
   return { root, expected, unreadableDir, cleanup };
@@ -177,4 +228,4 @@ function mockTmdb() {
   };
 }
 
-module.exports = { buildHostileTree, buildSmallTree, sparseFile, tmpDir, mockTmdb, MiB };
+module.exports = { buildHostileTree, buildSmallTree, sparseFile, lockDir, unlockDir, tmpDir, mockTmdb, MiB };

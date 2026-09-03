@@ -12,7 +12,7 @@
   --pad: 56px;
   --card-w: 200px;
   --shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
-  --font: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -82,6 +82,8 @@ body[data-view="player"] .drag-region { display: none; }
 }
 .topbar.is-scrolled { background-color: var(--bg); background-image: none; box-shadow: 0 1px 0 rgba(255,255,255,0.06); }
 .topbar > * { -webkit-app-region: no-drag; }
+/* Windows/Linux: no traffic lights on the left, caption buttons (~140px) overlaid top-right. */
+body[data-platform="win32"] .topbar, body[data-platform="linux"] .topbar { padding-left: var(--pad); padding-right: calc(var(--pad) + 100px); }
 .brand { font-weight: 900; letter-spacing: 0.08em; color: var(--red); font-size: 22px; }
 .brand-large { font-size: 34px; margin-bottom: 8px; }
 .topbar-spacer { flex: 1; }

@@ -48,6 +48,7 @@ async function scanDirectory(rootDir, { minFileSizeMB = 0 } = {}) {
   // Simple work queue with bounded concurrency over directories.
   const queue = [{ dir: root, depth: 0 }];
   let active = 0;
+  let rootError = null; // set when the root itself can't be listed (ACL denial on Windows passes fs.access)
   await new Promise((resolve) => {
     const pump = () => {
       while (active < DIR_CONCURRENCY && queue.length) {
@@ -64,12 +65,17 @@ async function scanDirectory(rootDir, { minFileSizeMB = 0 } = {}) {
     };
     pump();
   });
+  if (rootError) throw new FolderMissingError(root, rootError);
 
   async function readDir(dir, depth) {
     let entries;
     try {
       entries = await fsp.readdir(dir, { withFileTypes: true });
     } catch (err) {
+      if (depth === 0) {
+        rootError = err;
+        return;
+      }
       failedDirs.push(dir);
       console.warn('[scanner] cannot read', dir, err.code || err.message);
       return;

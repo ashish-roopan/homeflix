@@ -67,6 +67,11 @@ UI.fmtSize = (bytes) => {
   return gb >= 1 ? `${gb.toFixed(1)} GB` : `${Math.round(bytes / 1024 ** 2)} MB`;
 };
 
+// Platform-specific wording.
+UI.platform = (window.api && window.api.platform) || 'unknown';
+UI.revealLabel = UI.platform === 'darwin' ? 'Show in Finder' : UI.platform === 'win32' ? 'Show in Explorer' : 'Show in folder';
+UI.externalPlayersTip = UI.platform === 'darwin' ? 'IINA or VLC' : UI.platform === 'win32' ? 'VLC or MPC-HC' : 'VLC or mpv';
+
 UI.displayTitle = (m) => (m.tmdb && m.tmdb.title) || m.title || m.parsed.title || m.fileName;
 UI.displayYear = (m) => (m.tmdb && m.tmdb.year) || m.parsed.year || null;
 

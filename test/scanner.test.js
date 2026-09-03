@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const path = require('path');
 const fsp = require('fs/promises');
 const { scanDirectory, FolderMissingError } = require('../src/main/services/scanner');
-const { buildHostileTree, tmpDir } = require('./fixtures');
+const { buildHostileTree, tmpDir, lockDir, unlockDir } = require('./fixtures');
 
 test('scanner: hostile 1500-file tree', async (t) => {
   const fx = await buildHostileTree();
@@ -25,7 +25,7 @@ test('scanner: hostile 1500-file tree', async (t) => {
   assert.ok(names.has('Deep.Ten.2001.mkv'), 'depth 10 included');
   assert.ok(!names.has('sample.mkv') && !names.has('Some.Movie.2010-sample.mkv'), 'samples skipped');
   assert.ok(!names.has('Link.Movie.2015.mkv'), 'symlinks not followed');
-  assert.ok(!files.some((f) => f.path.includes('/loop/')), 'symlink loop not followed');
+  assert.ok(!files.some((f) => /[\\/]loop[\\/]/.test(f.path)), 'symlink loop not followed');
   assert.ok(!files.some((f) => /\.(txt|nfo|jpg|srt|db|md|m3u|zip|dmg)$/i.test(f.path)), 'junk ignored');
   assert.ok(!files.some((f) => path.basename(f.path).startsWith('._')), 'AppleDouble files ignored');
   assert.equal(failedDirs.length, 1, 'one unreadable dir reported');
@@ -54,10 +54,10 @@ test('scanner: root that is a file throws FolderMissingError', async (t) => {
 test('scanner: unreadable root throws FolderMissingError', async (t) => {
   const d = await tmpDir();
   t.after(async () => {
-    await fsp.chmod(d, 0o755);
+    await unlockDir(d);
     await fsp.rm(d, { recursive: true, force: true });
   });
-  await fsp.chmod(d, 0o000);
+  await lockDir(d);
   await assert.rejects(scanDirectory(d), (e) => e.code === 'FOLDER_MISSING');
 });
 

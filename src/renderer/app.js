@@ -3,6 +3,7 @@
 (function () {
   const { h } = UI;
   const viewEl = document.getElementById('view');
+  document.body.dataset.platform = UI.platform; // styles.css adjusts the top bar per platform
   const STALE_PROGRESS_MS = 5 * 60 * 1000;
   const STRUCTURAL_DEBOUNCE_MS = 4000;
 

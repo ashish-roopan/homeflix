@@ -85,11 +85,11 @@ UI.renderPlayer = function renderPlayer(container, movie, { onBack, onNext, next
         h('p', msg),
         h('div.player-error-actions',
           missing
-            ? h('button.btn.btn-primary', { onClick: () => window.api.revealInFinder(movie.id).catch((e) => UI.toast(e.message, { kind: 'error' })) }, UI.icon('folder'), h('span', 'Show in Finder'))
+            ? h('button.btn.btn-primary', { onClick: () => window.api.revealInFinder(movie.id).catch((e) => UI.toast(e.message, { kind: 'error' })) }, UI.icon('folder'), h('span', UI.revealLabel))
             : h('button.btn.btn-primary', { onClick: () => window.api.openExternal(movie.id).catch((e) => UI.toast(e.message, { kind: 'error' })) }, UI.icon('external'), h('span', 'Open in external player')),
           h('button.btn.btn-glass', { onClick: () => leave() }, 'Back')
         ),
-        missing ? null : h('p.muted.small', 'Tip: install a free player like IINA or VLC for HEVC, AC3 and DTS files.')
+        missing ? null : h('p.muted.small', `Tip: install a free player like ${UI.externalPlayersTip} for HEVC, AC3 and DTS files.`)
       )
     );
     errorBox.hidden = false;

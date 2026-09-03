@@ -6,10 +6,11 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node --test 'test/*.test.js'",
+    "test": "node --test \"test/*.test.js\"",
     "test:parser": "node --test test/parser.test.js",
     "smoke": "bash test/smoke.sh",
-    "dist": "electron-packager . Homeflix --platform=darwin --arch=arm64 --out=dist --overwrite --icon=build/icon.icns --app-bundle-id=com.ashish.homeflix --app-category-type=public.app-category.entertainment --ignore='^/(test|build|dist|\\.git|\\.claude)($|/)' --ignore='\\.command$'"
+    "icon": "electron build/make-icon.js",
+    "dist": "node build/dist.js"
   },
   "license": "MIT",
   "dependencies": {

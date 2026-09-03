@@ -1,10 +1,19 @@
-// Renders the app icon with Electron (offscreen). Output: build/icon.png (2048px).
+// Renders the app icon with Electron (offscreen). Output: build/icon.png (1024px) + build/icon.ico.
+// Run with: npm run icon
 const { app, BrowserWindow } = require('electron');
 const fs = require('fs');
 const path = require('path');
-app.whenReady().then(async () => {
-  const win = new BrowserWindow({ show: false, width: 1024, height: 1024, webPreferences: { offscreen: true }, transparent: true, frame: false });
-  const html = `<html><body style="margin:0;background:transparent">
+setTimeout(() => { console.error('make-icon: timed out'); app.exit(1); }, 30000).unref();
+// A small window at a forced 4x scale captures the same pixels on any monitor
+// (a 1024-point window gets clamped to the screen and the capture follows the display's DPI).
+app.commandLine.appendSwitch('force-device-scale-factor', '4');
+const SIZE = 240; // points; 4x scale -> 960 px, resized to 1024 (a full 1024 px would exceed a 1080p work area)
+app.whenReady().then(main).catch((err) => { console.error('make-icon failed:', err); app.exit(1); });
+async function main() {
+  // Not offscreen: OSR paint events never arrive on some Windows GPUs. A hidden window still paints
+  // (paintWhenInitiallyHidden); if the capture comes back empty the window is shown for a moment.
+  const win = new BrowserWindow({ show: false, width: SIZE + 16, height: SIZE + 16, useContentSize: true, resizable: false, transparent: true, frame: false, paintWhenInitiallyHidden: true, webPreferences: { backgroundThrottling: false } });
+  const html = `<html><body style="margin:0;background:transparent;zoom:${SIZE / 1024}">
   <style>
     .tile { position:relative; width:1024px; height:1024px; border-radius:228px; overflow:hidden;
       background: radial-gradient(120% 90% at 20% 0%, #4a0a10 0%, #1c0507 45%, #0b0b0c 100%); }
@@ -37,8 +46,44 @@ app.whenReady().then(async () => {
   </div></body></html>`;
   await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
   await new Promise((r) => setTimeout(r, 600));
-  const img = await win.webContents.capturePage({ x: 0, y: 0, width: 1024, height: 1024 });
+  const rect = { x: 0, y: 0, width: SIZE + 8, height: SIZE + 8 }; // over-capture, then crop: the bottom rows can be short
+  let img = await win.webContents.capturePage(rect);
+  if (img.isEmpty()) {
+    win.show();
+    await new Promise((r) => setTimeout(r, 800));
+    img = await win.webContents.capturePage(rect);
+  }
+  if (img.isEmpty()) throw new Error('capturePage returned an empty image');
+  img = img.crop({ x: 0, y: 0, width: SIZE * 4, height: SIZE * 4 }).resize({ width: 1024, height: 1024, quality: 'best' });
   fs.writeFileSync(path.join(__dirname, 'icon.png'), img.toPNG());
   console.log('icon.png written', img.getSize());
+  // Windows icon: PNG-compressed entries at the standard sizes in one .ico container.
+  const sizes = [256, 128, 64, 48, 32, 16];
+  const pngs = sizes.map((s) => img.resize({ width: s, height: s, quality: 'best' }).toPNG());
+  fs.writeFileSync(path.join(__dirname, 'icon.ico'), buildIco(sizes, pngs));
+  console.log('icon.ico written', sizes.join('/'));
   app.quit();
-});
+}
+
+function buildIco(sizes, pngs) {
+  const header = Buffer.alloc(6);
+  header.writeUInt16LE(0, 0); // reserved
+  header.writeUInt16LE(1, 2); // type: icon
+  header.writeUInt16LE(pngs.length, 4);
+  const dir = Buffer.alloc(16 * pngs.length);
+  let offset = header.length + dir.length;
+  pngs.forEach((png, i) => {
+    const s = sizes[i];
+    const e = i * 16;
+    dir.writeUInt8(s >= 256 ? 0 : s, e); // width (0 = 256)
+    dir.writeUInt8(s >= 256 ? 0 : s, e + 1); // height
+    dir.writeUInt8(0, e + 2); // palette
+    dir.writeUInt8(0, e + 3); // reserved
+    dir.writeUInt16LE(1, e + 4); // planes
+    dir.writeUInt16LE(32, e + 6); // bits per pixel
+    dir.writeUInt32LE(png.length, e + 8);
+    dir.writeUInt32LE(offset, e + 12);
+    offset += png.length;
+  });
+  return Buffer.concat([header, dir, ...pngs]);
+}

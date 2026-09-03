@@ -98,7 +98,7 @@ UI.openDetail = function openDetail(movie, { onPlay, onChanged, onRescan }) {
           h('div.modal-actions',
             h('button.btn.btn-primary.btn-large', { disabled: movie.missing, onClick: () => { close(); onPlay(movie); } }, UI.icon('play'), h('span', resume ? `Resume at ${UI.fmtTime(movie.playback.position)}` : 'Play')),
             h('button.btn.btn-glass', { disabled: movie.missing, onClick: () => window.api.openExternal(movie.id).catch(fail) }, UI.icon('external'), h('span', 'Open in external player')),
-            h('button.btn.btn-glass', { onClick: () => window.api.revealInFinder(movie.id).catch(fail) }, UI.icon('folder'), h('span', 'Show in Finder'))
+            h('button.btn.btn-glass', { onClick: () => window.api.revealInFinder(movie.id).catch(fail) }, UI.icon('folder'), h('span', UI.revealLabel))
           )
         )
       )

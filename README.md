@@ -1,25 +1,44 @@
 # Homeflix
 
 A Netflix-style launcher for the movies you download. Homeflix is a small
-Electron app for macOS. It watches your movies folder (default:
+Electron app for macOS and Windows. It watches your movies folder (default:
 `~/Documents/MOVIES`), works out each film's title and year from the file
 name, pulls the poster, backdrop, rating, runtime and overview from TMDB, and
 shows everything in a Netflix-like UI with a built-in player.
 
 ## Run it
 
-Double-click **Homeflix.app** in `~/Applications` (Spotlight: type "Homeflix").
+**macOS**: double-click **Homeflix.app** in `~/Applications` (Spotlight: type "Homeflix").
 
-From source:
+**Windows**: run `Homeflix.exe` from `dist\Homeflix-win32-x64\` (pin it to Start
+or the taskbar from there).
+
+From source, on either platform (needs Node.js 20 or newer):
 
 ```bash
 cd ~/code/homeflix
+npm install
 npm start
 ```
 
-Rebuild the app bundle after code changes with `npm run dist`; the result is
-`dist/Homeflix-darwin-arm64/Homeflix.app`. Copy it over the one in `~/Applications`.
-The bundle is unsigned, so if macOS complains on first open, right-click it and choose Open.
+Windows only: Electron's installer unzips with a native helper that needs the
+Microsoft Visual C++ Redistributable. If `npm install` ends with "Cannot find
+native binding", install it from <https://aka.ms/vs/17/release/vc_redist.x64.exe>
+and run `npm install` again.
+
+Rebuild the app after code changes with `npm run dist`. It packages for the
+platform you run it on:
+
+- macOS: `dist/Homeflix-darwin-arm64/Homeflix.app`. Copy it over the one in
+  `~/Applications`. The bundle is unsigned, so if macOS complains on first open,
+  right-click it and choose Open.
+- Windows: `dist\Homeflix-win32-x64\Homeflix.exe` (a portable folder, no
+  installer). SmartScreen may warn on first run because it is unsigned; choose
+  "More info" then "Run anyway".
+
+`npm run icon` regenerates `build/icon.png` and `build/icon.ico` from the
+CSS artwork in `build/make-icon.js` (the `.icns` is built from the PNG with
+`iconutil` on a Mac).
 
 ## First launch
 
@@ -33,9 +52,9 @@ still lists your files, just with placeholder posters.
 - **Movies folder**: change it in Settings. Sub-folders are scanned too.
 - **Ignore files smaller than**: defaults to 50 MB so samples and clips are skipped.
 
-Data lives in `~/Library/Application Support/homeflix/`: `settings.json`,
-`library.json` (+ `.bak`), `playback.json`, and `images/`. Delete the folder to
-start fresh.
+Data lives in `~/Library/Application Support/homeflix/` on macOS and
+`%APPDATA%\homeflix\` on Windows: `settings.json`, `library.json` (+ `.bak`),
+`playback.json`, and `images/`. Delete the folder to start fresh.
 
 ## What it copes with
 
@@ -100,9 +119,11 @@ large files.
 
 The player is Chromium, so H.264/VP9/AV1 video with AAC/Opus/MP3 audio plays
 fine. HEVC (H.265), AC3, EAC3 and DTS usually do not. The player then shows
-**Open in external player**, which hands the file to whatever macOS uses for
+**Open in external player**, which hands the file to whatever the OS uses for
 that type. Install [IINA](https://iina.io) or [VLC](https://www.videolan.org)
-for those files.
+on macOS, or [VLC](https://www.videolan.org) / [MPC-HC](https://github.com/clsid2/mpc-hc)
+on Windows, for those files. **Show in Finder** / **Show in Explorer** opens
+the file's folder.
 
 ## Fixing a wrong match
 
@@ -129,15 +150,25 @@ src/main/services/library.js  scan/reconcile/enrich orchestration
 src/main/services/stream.js   Range-capable file responses
 src/preload/preload.js        window.api bridge
 src/renderer/                 UI (plain HTML/CSS/JS); components/show.js is the season/episode view
+build/dist.js                 npm run dist: @electron/packager options per platform
+build/make-icon.js            npm run icon: renders icon.png + icon.ico
 test/                         node:test suites, fixtures, mock TMDB, smoke script
 ```
 
 Security: `contextIsolation` on, `nodeIntegration` off, `sandbox` on, strict
 CSP, and `media://` only serves files that are in the library or the image cache.
 
+Platform notes: the main process hides the native title bar on every platform;
+macOS keeps its traffic lights, Windows/Linux get Chromium's caption buttons
+overlaid top-right and the renderer pads the top bar for them (`data-platform`
+on `<body>`, set from `window.api.platform`). Test fixtures create sparse files
+with `fsutil` and unreadable folders with `icacls` on Windows, `chmod` elsewhere.
+`npm run smoke` runs from Git Bash on Windows too.
+
 ## Dev hooks
 
-- `MOVIE_LAUNCHER_DEVTOOLS=1 npm start` opens DevTools.
+- `MOVIE_LAUNCHER_DEVTOOLS=1 npm start` opens DevTools
+  (PowerShell: `$env:MOVIE_LAUNCHER_DEVTOOLS=1; npm start`).
 - `MOVIE_LAUNCHER_USER_DATA=/tmp/x` uses a throwaway data folder.
 - `MOVIE_LAUNCHER_SHOT=/tmp/x.png` screenshots the window after
   `MOVIE_LAUNCHER_SHOT_DELAY` ms (default 3000) and quits; add
