@@ -20,13 +20,23 @@
     playing: null, // movie or episode
     playingShow: null,
     firstRun: false,
-    featuredId: null,
+    featuredIds: {}, // page -> id of the hero title
     listView: null, // { title, ids }
     banners: { tmdbDown: false, keyDismissed: false, invalidKey: false },
     structuralTimer: null,
-    browse: (() => { try { return localStorage.getItem('browse') || 'all'; } catch { return 'all'; } })(),
+    page: 'home', // 'home' (mixed) | 'shows' | 'movies', like Netflix's left rail
+    browse: 'all', // 'all' | 'genre' | 'language' | 'rating' | 'decade': how the page is grouped
+    searchOpen: false, // the search field is shown (Search in the left rail)
+    focusSearch: false, // focus the search field on the next render (set when Search is chosen)
   };
-  const BROWSE_MODES = [['all', 'For you'], ['movies', 'Movies'], ['shows', 'Series'], ['genre', 'Genre'], ['language', 'Language'], ['rating', 'Rating'], ['decade', 'Decade']];
+  const PAGES = [['home', 'Home'], ['shows', 'Series'], ['movies', 'Movies']];
+  const BROWSE_MODES = [['all', 'All'], ['genre', 'Genre'], ['language', 'Language'], ['rating', 'Rating'], ['decade', 'Decade']];
+  try {
+    const page = localStorage.getItem('page');
+    if (PAGES.some(([k]) => k === page)) state.page = page;
+    const browse = localStorage.getItem('browse');
+    if (BROWSE_MODES.some(([k]) => k === browse)) state.browse = browse;
+  } catch { /* storage unavailable */ }
   const MIN_ROW = 2; // rows need at least this many titles to be worth showing
   window.__firstRenderAt = null;
 
@@ -36,7 +46,35 @@
     state.shows = lib.shows || [];
     state.byId = new Map([...lib.movies.map((m) => [m.id, m]), ...state.shows.map((s) => [s.id, s])]);
     state.meta = { folderMissing: lib.folderMissing, moviesDir: lib.moviesDir, failedDirs: lib.failedDirs || [] };
-    if (state.featuredId && !state.byId.has(state.featuredId)) state.featuredId = null;
+    for (const k of Object.keys(state.featuredIds)) if (!state.byId.has(state.featuredIds[k])) delete state.featuredIds[k];
+  }
+
+  /** Netflix-style pages: Home shows everything, Series and Movies only their kind. */
+  function pageItems(items) {
+    if (state.page === 'movies') return items.filter((m) => m.kind !== 'show');
+    if (state.page === 'shows') return items.filter((m) => m.kind === 'show');
+    return items;
+  }
+  function setPage(page) {
+    state.page = page;
+    state.browse = 'all';
+    state.query = '';
+    state.searchOpen = false;
+    state.listView = null;
+    state.view = 'home';
+    try { localStorage.setItem('page', page); localStorage.setItem('browse', 'all'); } catch { /* ignore */ }
+    render();
+  }
+  function toggleSearch() {
+    if (state.view !== 'home') {
+      state.view = 'home';
+      state.listView = null;
+      state.searchOpen = false;
+    }
+    state.searchOpen = !state.searchOpen;
+    if (!state.searchOpen) state.query = '';
+    state.focusSearch = state.searchOpen;
+    render();
   }
 
   async function load() {
@@ -236,8 +274,9 @@
   }
 
   function pickFeatured(items) {
-    if (state.featuredId) {
-      const cur = items.find((m) => m.id === state.featuredId);
+    const remembered = state.featuredIds[state.page];
+    if (remembered) {
+      const cur = items.find((m) => m.id === remembered);
       if (cur && cur.status === 'matched' && !cur.missing) return cur;
     }
     const good = items.filter((m) => m.status === 'matched' && m.backdropUrl && !m.missing && !m.downloading);
@@ -245,7 +284,7 @@
     if (!pool.length) return items[0] || null;
     const recent = [...pool].sort((a, b) => (b.addedAt || '').localeCompare(a.addedAt || '')).slice(0, 8);
     const pick = recent[Math.floor(Date.now() / 86400000) % recent.length];
-    if (pick.status === 'matched') state.featuredId = pick.id;
+    if (pick.status === 'matched') state.featuredIds[state.page] = pick.id;
     return pick;
   }
 
@@ -395,25 +434,14 @@
     );
   }
 
-  function groupedRows(items, matched, handlers, rowOpts) {
+  /** Rows for the current page (Home / Series / Movies) in the current browse mode. */
+  function pageRows(items, handlers, rowOpts) {
     const rows = [];
+    const matched = items.filter((m) => m.status === 'matched');
+    const mixed = state.page === 'home';
+    const noun = state.page === 'shows' ? 'series' : state.page === 'movies' ? 'movies' : 'titles';
+    const alpha = (list) => [...list].sort((a, b) => UI.displayTitle(a).localeCompare(UI.displayTitle(b)));
     switch (state.browse) {
-      case 'movies': {
-        const movies = items.filter((m) => m.kind !== 'show');
-        rows.push(UI.renderRow('Recently added', [...movies].sort(byAddedDesc).slice(0, 40), handlers, rowOpts));
-        for (const [g, list] of groupBy(movies.filter((m) => m.status === 'matched'), genresOf)) rows.push(UI.renderRow(g, [...list].sort(byRatingDesc), handlers, rowOpts));
-        rows.push(UI.renderRow('All movies', [...movies].sort((a, b) => UI.displayTitle(a).localeCompare(UI.displayTitle(b))), handlers, rowOpts));
-        break;
-      }
-      case 'shows': {
-        const shows = items.filter((m) => m.kind === 'show');
-        const inProgress = shows.filter((s) => s.playback && s.playback.started && !s.playback.finished);
-        rows.push(UI.renderRow('Continue watching', inProgress.sort((a, b) => (lastPlayedAt(b) || '').localeCompare(lastPlayedAt(a) || '')), handlers, { ...rowOpts, min: 1 }));
-        rows.push(UI.renderRow('Recently added', [...shows].sort(byAddedDesc).slice(0, 40), handlers, rowOpts));
-        for (const [g, list] of groupBy(shows.filter((m) => m.status === 'matched'), genresOf)) rows.push(UI.renderRow(g, [...list].sort(byRatingDesc), handlers, rowOpts));
-        rows.push(UI.renderRow('All series', [...shows].sort((a, b) => UI.displayTitle(a).localeCompare(UI.displayTitle(b))), handlers, rowOpts));
-        break;
-      }
       case 'genre':
         for (const [g, list] of groupBy(matched, genresOf)) rows.push(UI.renderRow(g, [...list].sort(byRatingDesc), handlers, rowOpts));
         break;
@@ -439,18 +467,32 @@
         break;
       }
       default: {
-        // "For you": a taste of everything.
+        // The page's own mix: what you're watching, what we'd suggest, then browsing rows,
+        // with the housekeeping rows (recently added, everything, downloads, problems) at the bottom.
+        const continueWatching = items
+          .filter((m) => !m.missing && (m.kind === 'show'
+            ? m.playback && m.playback.started && !m.playback.finished
+            : m.playback && !m.playback.finished && m.playback.position > 0))
+          .sort((a, b) => (lastPlayedAt(b) || '').localeCompare(lastPlayedAt(a) || ''));
+        rows.push(UI.renderRow('Continue watching', continueWatching, handlers, { ...rowOpts, min: 1 }));
         rows.push(...recommendationRows(items, handlers, rowOpts));
-        const shows = items.filter((m) => m.kind === 'show');
-        const movies = items.filter((m) => m.kind !== 'show');
-        if (shows.length && movies.length) {
-          rows.push(UI.renderRow('Series', [...shows].sort(byAddedDesc), handlers, rowOpts));
+        if (mixed) {
+          const shows = items.filter((m) => m.kind === 'show');
+          if (shows.length && shows.length < items.length) rows.push(UI.renderRow('Series', [...shows].sort(byAddedDesc), handlers, rowOpts));
         }
         const topRated = matched.filter((m) => rating(m)).sort(byRatingDesc).slice(0, 40);
         if (topRated.length >= 3 && matched.length > 6) rows.push(UI.renderRow('Top rated', topRated, handlers, rowOpts));
         const langs = groupBy(items, itemLanguages);
-        if (langs.length >= 2) for (const [code, list] of langs.slice(0, 4)) rows.push(UI.renderRow(`${languageName(code)} titles`, [...list].sort(byYearDesc), handlers, rowOpts));
-        for (const [g, list] of groupBy(matched, genresOf, { min: 3 })) rows.push(UI.renderRow(g, list, handlers, rowOpts));
+        if (langs.length >= 2) for (const [code, list] of langs.slice(0, 4)) rows.push(UI.renderRow(`${languageName(code)} ${noun}`, [...list].sort(byYearDesc), handlers, rowOpts));
+        for (const [g, list] of groupBy(matched, genresOf, { min: 3 })) rows.push(UI.renderRow(g, mixed ? list : [...list].sort(byRatingDesc), handlers, rowOpts));
+
+        const byAdded = items.filter((m) => !m.downloading && !m.missing).sort(byAddedDesc);
+        rows.push(UI.renderRow('Recently added', byAdded.slice(0, 40), handlers, rowOpts));
+        if (!mixed || items.length > 30) rows.push(UI.renderRow(`All ${noun}`, alpha(items), handlers, rowOpts));
+        rows.push(UI.renderRow('Downloading', items.filter((m) => m.downloading), handlers, rowOpts));
+        // Without a key nothing could be looked up, so "Needs a match" would just mirror the library.
+        if (UI.hasTmdbKey) rows.push(UI.renderRow('Needs a match', items.filter((m) => m.status === 'unmatched' && !m.downloading && !m.missing), handlers, rowOpts));
+        rows.push(UI.renderRow('Missing files', items.filter((m) => m.missing), handlers, rowOpts));
       }
     }
     return rows;
@@ -475,6 +517,7 @@
           rescan(keyChanged);
         },
       });
+      if (!state.firstRun) viewEl.appendChild(renderSidebar());
       return;
     }
     if (state.view === 'player') {
@@ -503,20 +546,34 @@
     renderHome();
   }
 
+  /** Netflix-style left rail: Search, Home, Series, Movies; Rescan and Settings at the bottom. */
+  function renderSidebar() {
+    const onHome = state.view === 'home' && !state.searchOpen;
+    const item = (icon, label, { active, onClick, onContextmenu, title } = {}) =>
+      h('button', { class: `sidebar-item${active ? ' is-active' : ''}`, title: title || label, 'aria-label': label, onClick, onContextmenu },
+        UI.icon(icon), h('span.sidebar-label', label));
+    return h('aside.sidebar',
+      h('button.sidebar-brand', { 'aria-label': 'Homeflix', onClick: () => setPage('home') }, h('span.sidebar-brand-mark', 'H'), h('span.sidebar-label', 'HOMEFLIX')),
+      item('search', 'Search', { active: state.view === 'home' && state.searchOpen, onClick: toggleSearch }),
+      PAGES.map(([key, label]) => item(key === 'home' ? 'home' : key === 'shows' ? 'tv' : 'film', label, { active: onHome && state.page === key, onClick: () => setPage(key) })),
+      h('div.sidebar-spacer'),
+      item('refresh', 'Rescan', { title: 'Rescan folder (right-click: retry unmatched)', onClick: () => rescan(false), onContextmenu: (e) => { e.preventDefault(); rescan(true); } }),
+      item('gear', 'Settings', { active: state.view === 'settings', onClick: openSettings })
+    );
+  }
+
+  /** Slim top strip over the content: scan progress and, when Search is open, the search field. */
   function renderTopbar() {
     const searchInput = h('input.search-input', {
       type: 'search',
-      placeholder: 'Search titles',
+      placeholder: 'Search titles, genres, languages…',
       value: state.query,
       onInput: UI.debounce((e) => { state.query = e.target.value; renderHome(); }, 150),
     });
     const bar = h('header.topbar',
-      h('div.brand', { onClick: () => { state.query = ''; state.view = 'home'; render(); } }, 'HOMEFLIX'),
+      state.searchOpen || state.query ? h('label.search', UI.icon('search'), searchInput) : null,
       h('div.topbar-spacer'),
-      h('div#progress.progress', { hidden: true }),
-      h('label.search', UI.icon('search'), searchInput),
-      h('button.iconbtn', { title: 'Rescan folder (right-click: retry unmatched)', onClick: () => rescan(false), onContextmenu: (e) => { e.preventDefault(); rescan(true); } }, UI.icon('refresh')),
-      h('button.iconbtn', { title: 'Settings', onClick: openSettings }, UI.icon('gear'))
+      h('div#progress.progress', { hidden: true })
     );
     return { bar, searchInput };
   }
@@ -628,32 +685,16 @@
         )
       );
     } else {
-      const matched = items.filter((m) => m.status === 'matched');
-      const featured = pickFeatured(items);
-      const byAdded = items.filter((m) => !m.downloading && !m.missing).sort(byAddedDesc);
-      const continueWatching = items
-        .filter((m) => !m.missing && (m.kind === 'show'
-          ? m.playback && m.playback.started && !m.playback.finished
-          : m.playback && !m.playback.finished && m.playback.position > 0))
-        .sort((a, b) => (lastPlayedAt(b) || '').localeCompare(lastPlayedAt(a) || ''));
-      const downloading = items.filter((m) => m.downloading);
-      const missing = items.filter((m) => m.missing);
-      // Without a key nothing could be looked up, so "Needs a match" would just mirror the library.
-      const unmatched = UI.hasTmdbKey ? items.filter((m) => m.status === 'unmatched' && !m.downloading && !m.missing) : [];
+      const pitems = pageItems(items);
+      const featured = pickFeatured(pitems.length ? pitems : items);
       const rowOpts = { onSeeAll: openList };
-      const forYou = state.browse === 'all';
-
       body = h('div.home-body',
         UI.renderHero(featured, { onPlay: handlers.onPlay, onInfo: handlers.onOpen }),
         h('div.rows',
           renderBrowseBar(),
-          forYou ? UI.renderRow('Continue watching', continueWatching, handlers, { ...rowOpts, min: 1 }) : null,
-          forYou ? UI.renderRow('Recently added', byAdded.slice(0, 40), handlers, rowOpts) : null,
-          groupedRows(items, matched, handlers, rowOpts),
-          forYou && items.length > 30 ? UI.renderRow('All titles', [...items].sort((a, b) => UI.displayTitle(a).localeCompare(UI.displayTitle(b))), handlers, rowOpts) : null,
-          forYou ? UI.renderRow('Downloading', downloading, handlers, rowOpts) : null,
-          forYou ? UI.renderRow('Needs a match', unmatched, handlers, rowOpts) : null,
-          forYou ? UI.renderRow('Missing files', missing, handlers, rowOpts) : null
+          pitems.length
+            ? pageRows(pitems, handlers, rowOpts)
+            : h('div.empty', h('p', state.page === 'shows' ? 'No series found yet. Episodes are detected from S01E02-style names or a "TV SERIES" folder.' : 'No movies found yet.'))
         )
       );
     }
@@ -661,15 +702,17 @@
     const home = h('div.home', topbar, banners, body);
     UI.clear(viewEl);
     viewEl.appendChild(home);
+    viewEl.appendChild(renderSidebar());
     home.scrollTop = scrollY;
     home.addEventListener('scroll', () => topbar.classList.toggle('is-scrolled', home.scrollTop > 20), { passive: true });
-    topbar.classList.toggle('is-scrolled', scrollY > 20);
+    topbar.classList.toggle('is-scrolled', scrollY > 20 || Boolean(q));
     renderProgress();
     renderBanners();
-    if (q && document.activeElement !== searchInput) {
+    if ((q || state.focusSearch) && document.activeElement !== searchInput) {
       searchInput.focus();
       searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
     }
+    state.focusSearch = false;
     if (!window.__firstRenderAt) window.__firstRenderAt = performance.now();
   }
 
@@ -694,8 +737,23 @@
     );
     UI.clear(viewEl);
     viewEl.appendChild(page);
+    viewEl.appendChild(renderSidebar());
     topbar.classList.add('is-scrolled');
   }
+
+  // ---------- remote / keyboard "back" ----------
+  // Esc (or a controller's B button, which components/remote.js turns into Esc) walks back:
+  // modals and the player handle their own Esc; this covers list -> home, settings -> home, clear search.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' && e.key !== 'Backspace') return;
+    if (e.key === 'Backspace' && e.target && /INPUT|TEXTAREA/.test(e.target.tagName)) return;
+    if (!document.getElementById('overlay').hidden || state.view === 'player') return;
+    if (state.view === 'list') { state.view = 'home'; state.listView = null; render(); }
+    else if (state.view === 'settings' && !state.firstRun) { state.view = 'home'; render(); }
+    else if (state.view === 'home' && (state.query || state.searchOpen)) { state.query = ''; state.searchOpen = false; renderHome(); }
+  });
+  if (UI.remote) UI.remote.search = toggleSearch;
+  if (UI.remote) UI.remote.home = () => setPage('home');
 
   load().catch((err) => {
     UI.clear(viewEl);

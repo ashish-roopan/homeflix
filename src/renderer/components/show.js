@@ -95,7 +95,12 @@ UI.openShowDetail = function openShowDetail(show, { onPlayEpisode, onChanged, on
       const done = e.playback && e.playback.finished;
       const isNext = next && next.id === e.id;
       episodeList.appendChild(
-        h('article.episode', { class: `episode${isNext ? ' is-next' : ''}${e.missing ? ' is-missing' : ''}`, onClick: () => !e.missing && onPlayEpisode(e, show) },
+        h('article.episode', {
+          class: `episode${isNext ? ' is-next' : ''}${e.missing ? ' is-missing' : ''}`,
+          tabindex: 0,
+          onClick: () => !e.missing && onPlayEpisode(e, show),
+          onKeydown: (ev) => { if (ev.key === 'Enter' && !e.missing) { ev.preventDefault(); onPlayEpisode(e, show); } },
+        },
           h('div.episode-num', String(e.episode)),
           h('div.episode-thumb',
             e.stillUrl ? h('img', { src: e.stillUrl, alt: '', loading: 'lazy', onError: (ev) => ev.target.remove() }) : null,

@@ -53,7 +53,36 @@ const cases = [
   ep('TV Shows/Breaking Bad/Season 1/Breaking.Bad.S01E01.mkv', 'Breaking Bad', null, 1, 1),
   ep('Series/English/Dark (2017)/Season 1/03.mkv', 'Dark', 2017, 1, 3),
   ep('TV/Hindi/Panchayat/Season 2/Panchayat.S02E04.Hindi.mkv', 'Panchayat', null, 2, 4),
+  // category folders: "TV SERIES"/"ANIME SERIES" mean show (the folder below names it), "HOLLYWOOD"/"MOVIES" mean movie
+  ep('TV SERIES/Band Of Brothers Mini-Series - Action History 2001 Eng Subs 720p [H264-mp4]/Band Of Brothers Mini-Series/02 Band Of Brothers Episode 01 Currahee - History 2001 Eng Subs 720p [H264-mp4].mp4', 'Band Of Brothers', 2001, 1, 1),
+  ep('TV SERIES/Band Of Brothers Mini-Series - Action History 2001 Eng Subs 720p [H264-mp4]/Band Of Brothers Mini-Series/11 Band Of Brothers Episode 10 Points - History 2001 Eng Subs 720p [H264-mp4].mp4', 'Band Of Brothers', 2001, 1, 10),
+  ep('TV SERIES/Band Of Brothers Mini-Series - Action History 2001 Eng Subs 720p [H264-mp4]/Band Of Brothers Mini-Series/01 Band Of Brothers We Stand Alone Together - History 2001 Eng Subs 720p [H264-mp4].mp4', 'Band Of Brothers', 2001, 1, 1),
+  ep('ANIME SERIES/DEMON SLAYER/[Hakata Ramen] Kimetsu no Yaiba (Demon Slayer) {Season 1} [1080p][HEVC][10bit][Opus][Multi-Subs](Doc_Ramen)/[Hakata Ramen] Kimetsu no Yaiba (Demon Slayer) - 01 [1080p][HEVC].mkv', 'DEMON SLAYER', null, 1, 1),
+  ep('ANIME SERIES/DEMON SLAYER/[HR] Kimetsu no Yaiba - Mugen Ressha-hen S02 (2021) [Hulu 1080p HEVC E-OPUS]~HR-DR/[HR] Kimetsu no Yaiba S02E01 [BBE2936A].mkv', 'DEMON SLAYER', 2021, 2, 1),
+  ep('ANIME SERIES/NARUTO/001 - Enter Naruto Uzumaki!.mkv', 'NARUTO', null, 1, 1),
+  ep('TV SERIES/EXPLAINED/Explained.S01.COMPLETE.720p.NF.WEBRip.x264-GalaxyTV[TGx]/Explained.S01E01.720p.NF.WEBRip.x264-GalaxyTV.mkv', 'EXPLAINED', null, 1, 1),
+  ep('TV SERIES/BOJACK HORSEMAN/S01/BoJack_Horseman_S01E02_720p_NF_WEBRip_x265.mkv', 'BOJACK HORSEMAN', null, 1, 2),
+  ep('TV SERIES/MODERN FAMILY/Modern Family Season 3  (1080p BD x265 10bit Joy)/Modern Family S03E01 Dude Ranch  (1080p x265 10bit Joy).mkv', 'MODERN FAMILY', null, 3, 1, { episodeTitle: 'Dude Ranch' }),
+  mov('ANIME SERIES/DEMON SLAYER/[IAS] Demon Slayer Movie_(1080p).mkv', 'Demon Slayer Movie', null),
+  mov('HOLLYWOOD/12.Angry.Men.1957.1080p.BluRay.x264-[YTS.AM].mp4', '12 Angry Men', 1957),
+  mov('MOVIES/Anime Film (2019)/Anime Film - 01.mkv', 'Anime Film', 2019),
+  mov('BOLLYWOOD/@MM_Links Angrezi Medium (2020) Hindi 720p HDRip x264.mkv', 'Angrezi Medium', 2020),
 ];
+
+test('folder categories', () => {
+  const { folderCategory, pathContext } = require('../src/main/services/parser');
+  assert.equal(folderCategory('TV SERIES'), 'show');
+  assert.equal(folderCategory('ANIME SERIES'), 'show');
+  assert.equal(folderCategory('Shows'), 'show');
+  assert.equal(folderCategory('MALAYALAM MOVIES'), 'movie');
+  assert.equal(folderCategory('Bollywood'), 'movie');
+  assert.equal(folderCategory('The Morning Show'), null, 'a show title is not a category');
+  assert.equal(folderCategory('Season 1'), null);
+  assert.equal(folderCategory('Anime'), null);
+  assert.deepEqual(pathContext(path.join(ROOT, 'TV SERIES/Hindi/Panchayat/Season 2/x.mkv'), ROOT).showFolder, 'Panchayat');
+  assert.equal(pathContext(path.join(ROOT, 'HOLLYWOOD/x.mkv'), ROOT).hint, 'movie');
+  assert.equal(pathContext(path.join(ROOT, 'x.mkv'), ROOT).hint, null);
+});
 
 for (const [rel, want] of cases) {
   test(`media parse: ${rel}`, () => {
@@ -210,6 +239,53 @@ test('library: unmatched show retried on force; no key leaves episodes unmatched
   await s.lib.scan({ force: true });
   sh = s.lib.publicLibrary().shows[0];
   assert.equal(sh.status, 'matched');
+});
+
+test('library: the size threshold applies to movies only; episodes have a low floor', async (t) => {
+  const s = await setup({
+    'TV SERIES/Small Show/Small.Show.S01E01.mkv': 100 * MiB,
+    'TV SERIES/Small Show/Small.Show.S01E02.mkv': 10 * MiB,
+    'MOVIES/Small.Movie.2020.mkv': 100 * MiB,
+    'MOVIES/Big.Movie.2020.mkv': 400 * MiB,
+  });
+  t.after(s.cleanup);
+  await s.store.saveSettings({ minFileSizeMB: 300 });
+  await s.lib.scan();
+  const pub = s.lib.publicLibrary();
+  assert.deepEqual(pub.movies.map((m) => m.parsed.title), ['Big Movie']);
+  assert.equal(pub.shows.length, 1);
+  assert.equal(pub.shows[0].episodeCount, 1, 'a 10 MB file is below the 30 MB episode floor');
+});
+
+test('library: season packs named differently become one show, by show folder and by TMDB id', async (t) => {
+  const s = await setup({
+    'ANIME SERIES/DEMON SLAYER/[HR] Kimetsu no Yaiba (Demon Slayer) {Season 1}/[HR] Kimetsu no Yaiba (Demon Slayer) - 01.mkv': 60 * MiB,
+    'ANIME SERIES/DEMON SLAYER/[HR] Kimetsu no Yaiba S02 (2021)/[HR] Kimetsu no Yaiba S02E01.mkv': 61 * MiB,
+    'Kimetsu no Yaiba/Kimetsu.no.Yaiba.S03E01.mkv': 62 * MiB, // no category folder, different name, same TMDB show
+  });
+  t.after(s.cleanup);
+  s.tmdb.aliases.set('Kimetsu no Yaiba', 'DEMON SLAYER');
+  await s.lib.scan();
+  const pub = s.lib.publicLibrary();
+  assert.equal(pub.shows.length, 1, JSON.stringify(pub.shows.map((x) => x.parsed.title)));
+  assert.equal(pub.shows[0].episodeCount, 3);
+  assert.deepEqual(pub.shows[0].seasons.map((x) => x.number), [1, 2, 3]);
+  assert.ok(pub.shows[0].seasons.every((x) => x.episodes.every((e) => e.status === 'matched')));
+});
+
+test('library: Band of Brothers layout is one show with ten episodes', async (t) => {
+  const dir = 'TV SERIES/Band Of Brothers Mini-Series - Action History 2001 Eng Subs 720p [H264-mp4]/Band Of Brothers Mini-Series';
+  const files = {};
+  for (let i = 1; i <= 10; i++) files[`${dir}/${String(i + 1).padStart(2, '0')} Band Of Brothers Episode ${String(i).padStart(2, '0')} Title - History 2001 Eng Subs 720p [H264-mp4].mp4`] = (60 + i) * MiB;
+  const s = await setup(files);
+  t.after(s.cleanup);
+  await s.lib.scan();
+  const pub = s.lib.publicLibrary();
+  assert.equal(pub.movies.length, 0);
+  assert.equal(pub.shows.length, 1);
+  assert.equal(pub.shows[0].parsed.title, 'Band Of Brothers');
+  assert.equal(pub.shows[0].episodeCount, 10);
+  assert.equal(s.tmdb.calls.tvSearch, 1);
 });
 
 test('showPlayback helper edge cases', () => {

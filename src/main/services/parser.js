@@ -7,7 +7,7 @@
 const path = require('path');
 
 // Bump whenever parsing changes so existing library entries get re-parsed once.
-const PARSER_VERSION = 4;
+const PARSER_VERSION = 5;
 
 let ptt = null;
 try {
@@ -171,12 +171,18 @@ function preClean(name) {
   let s = stripPartialSuffix(String(name));
   // Leading "[Group]" (anime/scene release groups): "[SubsPlease] Show - 05".
   s = s.replace(/^\s*\[[^\]]{1,40}\]\s*/, '');
+  // Telegram/forum handles glued to the front: "@MM_Links Angrezi Medium (2020)".
+  s = s.replace(/^\s*@[\w.]+[_\s-]+/, '');
   // Website prefixes, possibly stacked: "www.Site.tld - [Site2.tld] - Title".
   for (let i = 0; i < 3; i++) {
     const next = s.replace(SITE_PREFIX_RE, '');
     if (next === s) break;
     s = next;
   }
+  // "A Separation aka Jodaie Nader Az Simin 2011": drop the alias up to the year/tags.
+  s = s.replace(/[ ._-]+aka[ ._-]+(?:(?!(?:19|20)\d{2}\b)[^\s._-]+[ ._-]*)*/i, ' ');
+  // "Fight Club 10th Anniversary Edition 1999".
+  s = s.replace(/\b\d+(?:st|nd|rd|th)[ ._-]+anniversary(?:[ ._-]+edition)?\b/i, ' ');
   // Bracketed groups that are pure release info or a domain (e.g. "[YTS.MX]", "(1080p)", "[www.Site.tld]").
   s = s.replace(/[\[({]([^\])}]*)[\])}]/g, (m, inner) => {
     const inn = inner.trim();
@@ -251,6 +257,60 @@ function postClean(title) {
     .trim();
 }
 
+// ---------------------------------------------------------------- folder context
+
+// Category folders say what everything beneath them is: "TV SERIES", "Anime Series", "Shows",
+// "MALAYALAM MOVIES", "Bollywood". Every word must be a category, language or filler word, so a
+// show called "The Morning Show" is not mistaken for one.
+const SHOW_WORDS = new Set(['tv', 'series', 'serial', 'serials', 'show', 'shows', 'sitcom', 'sitcoms', 'kdrama', 'kdramas', 'webseries', 'miniseries']);
+const MOVIE_WORDS = new Set(['movie', 'movies', 'film', 'films', 'cinema', 'bollywood', 'hollywood', 'tollywood', 'kollywood', 'mollywood', 'sandalwood']);
+const FILLER_WORDS = new Set(['anime', 'web', 'indian', 'foreign', 'regional', 'new', 'latest', 'old', 'classic', 'classics', 'hd', '4k', 'kids', 'all', 'my', 'the', 'complete', 'collection', 'and', '&', 'dubbed']);
+// Sub-folders that only refine a category ("Series/English/...", "Movies/2023/...", "Shows/A/...").
+const SUBCATEGORY_RE = /^(?:\d{4}s?|[a-z]|#|misc|others?|new|old|classics?|hd|4k|1080p|720p|dubbed|subbed|kids|family|documentar(?:y|ies)|action|comedy|drama|thriller|horror|romance|sci-?fi|animation|animated|complete|collection)$/i;
+
+/** 'show' | 'movie' | null for a folder name like "TV SERIES" or "MALAYALAM MOVIES". */
+function folderCategory(name) {
+  const words = String(name || '').toLowerCase().replace(/[._-]+/g, ' ').trim().split(/\s+/).filter(Boolean);
+  if (!words.length || words.length > 4) return null;
+  let kind = null;
+  for (const w of words) {
+    if (SHOW_WORDS.has(w)) kind = kind || 'show';
+    else if (MOVIE_WORDS.has(w)) kind = kind || 'movie';
+    else if (!FILLER_WORDS.has(w) && !LANGUAGE_TAGS[w]) return null;
+  }
+  return kind;
+}
+
+/**
+ * Folder context for a file: the deepest category folder above it (hint) and, under a show
+ * category, the folder right below it that names the show ("TV SERIES/DEMON SLAYER/...").
+ */
+function pathContext(filePath, rootDir) {
+  const root = rootDir ? path.resolve(rootDir) : null;
+  const rel = root ? path.relative(root, path.dirname(filePath)) : '';
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return { hint: null, showFolder: null, folders: [] };
+  const folders = rel.split(/[\\/]+/).filter(Boolean);
+  let hint = null;
+  let catIndex = -1;
+  folders.forEach((f, i) => {
+    const c = folderCategory(f);
+    if (c) {
+      hint = c;
+      catIndex = i;
+    }
+  });
+  let showFolder = null;
+  if (hint === 'show') {
+    for (let i = catIndex + 1; i < folders.length; i++) {
+      const f = folders[i];
+      if (LANGUAGE_TAGS[f.toLowerCase()] || SUBCATEGORY_RE.test(f) || folderCategory(f)) continue;
+      showFolder = f;
+      break;
+    }
+  }
+  return { hint, showFolder, folders };
+}
+
 // ---------------------------------------------------------------- TV episodes
 
 // Patterns that carry both season and episode.
@@ -284,22 +344,42 @@ function seasonFromFolder(name) {
   if (m) return Number(m[1]);
   const pack = SEASON_PACK_RE.exec(name);
   if (pack) return Number(pack[1]);
+  // "{Season 1}", "Modern Family Season 3 (1080p ...)": the season word anywhere in the folder name.
+  const anywhere = /(?<![a-z])(?:season|series)[ ._-]?(\d{1,2})(?![0-9])/i.exec(name);
+  if (anywhere) return Number(anywhere[1]);
   return null;
 }
 
 /** Strip season tokens from a folder name so "Show.Name.S01.1080p" -> show title. */
 function showTitleFromFolder(name) {
   let n = String(name).replace(SEASON_PACK_RE, ' ');
-  n = n.replace(/\b(?:season|series|saison|temporada|staffel|stagione)[ ._-]?\d{1,2}\b/i, ' ');
-  n = n.replace(/\b(?:complete|full)[ ._-]?(?:series|season|collection)?\b/i, ' ');
+  n = n.replace(/\b(?:season|series|saison|temporada|staffel|stagione)[ ._-]?\d{1,2}(?:[ ._-]*(?:-|to)[ ._-]*\d{1,2})?\b/gi, ' '); // "Season 1", "Season 1-9"
+  n = n.replace(/\bmini[ ._-]?series\b/gi, ' ');
+  n = n.replace(/\b(?:complete|full)[ ._-]?(?:series|season|collection)?\b/gi, ' ');
+  // "Band Of Brothers - Action History 2001 Eng Subs 720p", "Kimetsu no Yaiba - Mugen Ressha-hen S02 (2021)":
+  // when what follows a spaced dash is release info (has a year or tags), the title is what precedes it.
+  const dash = /^(.{3,}?\S)\s+[-–—]\s+/.exec(n);
+  if (dash && /[a-z]/i.test(dash[1])) {
+    const rest = n.slice(dash[0].length);
+    if (YEAR_RE.test(rest) || ANY_TAG_RE.test(rest)) {
+      YEAR_RE.lastIndex = 0;
+      const y = /(?<!\d)(19[2-9]\d|20[0-4]\d)(?!\d)/.exec(rest);
+      n = dash[1] + (y ? ` (${y[1]})` : '');
+    }
+    YEAR_RE.lastIndex = 0;
+  }
   return parseName(n);
 }
 
 /**
  * Detect a TV episode from the path.
- * @returns {null | { show:{title,year}, season:number, episode:number, episodeEnd:number|null, episodeTitle:string|null, languages:string[] }}
+ * `ctx` (from pathContext) carries the category hint: under "TV SERIES" bare episode numbers are
+ * trusted and the show folder names the show; under "MOVIES" only explicit S01E02-style markers count.
+ * @returns {null | { show:{title,year}, groupTitle:string|null, season:number, episode:number, episodeEnd:number|null, episodeTitle:string|null, languages:string[] }}
  */
-function parseEpisodePath(filePath, rootDir) {
+function parseEpisodePath(filePath, rootDir, ctx = pathContext(filePath, rootDir)) {
+  const hintShow = ctx.hint === 'show';
+  const hintMovie = ctx.hint === 'movie';
   const fileName = stripPartialSuffix(path.basename(filePath));
   const base = path.basename(fileName, path.extname(fileName));
   const rootResolved = rootDir ? path.resolve(rootDir) : null;
@@ -326,8 +406,11 @@ function parseEpisodePath(filePath, rootDir) {
     const after = base.slice(se.index + se.length);
     const et = parseName(after.replace(/^[ ._-]+/, ''));
     if (et.title && !/^\d+$/.test(et.title) && et.title.length > 1) episodeTitle = et.title;
-  } else if (parentSeason !== null || (parentName && looksLikeShowFolder(parentName, base))) {
-    // Inside a season folder ("Season 2/03 - Title.mkv", "S01/E04.mkv") or an all-episodes-in-one show folder.
+  } else if (hintMovie) {
+    return null; // a movie folder: only an explicit S01E02-style marker makes an episode
+  } else if (hintShow || parentSeason !== null || (parentName && looksLikeShowFolder(parentName, base))) {
+    // Inside a season folder ("Season 2/03 - Title.mkv", "S01/E04.mkv"), an all-episodes-in-one
+    // show folder, or anywhere under a "TV SERIES"-style category.
     let m = null;
     for (const re of EP_ONLY_PATTERNS) {
       m = re.exec(base);
@@ -335,17 +418,20 @@ function parseEpisodePath(filePath, rootDir) {
     }
     if (!m) {
       const d = DASH_NUMBER_RE.exec(base);
-      if (d && parentName) {
+      if (d && hintShow) m = d;
+      else if (d && parentName) {
         const before = parseName(base.slice(0, d.index)).title.toLowerCase();
         const folderTitle = showTitleFromFolder(parentName).title.toLowerCase();
         if (before && folderTitle && (before === folderTitle || folderTitle.startsWith(before) || before.startsWith(folderTitle))) m = d;
       }
     }
     if (!m) return null;
-    weak = parentSeason === null && !/(?:[Ee]pisode|[Ee]p)[ ._-]?\d/.test(base);
+    weak = !hintShow && parentSeason === null && !/(?:[Ee]pisode|[Ee]p)[ ._-]?\d/.test(base);
     episode = Number(m[1]);
     season = parentSeason !== null ? parentSeason : 1;
     titlePart = base.slice(0, m.index);
+    // "02 Band Of Brothers Episode 01 Currahee": a leading playlist index is not part of the title.
+    if (m.index > 0) titlePart = titlePart.replace(/^\s*\d{1,3}[ ._-]+/, '');
     const after = base.slice(m.index + m[0].length);
     const et = parseName(after.replace(/^[ ._-]+/, ''));
     if (et.title && et.title.length > 1) episodeTitle = et.title;
@@ -361,6 +447,19 @@ function parseEpisodePath(filePath, rootDir) {
     else if (grandName) show = showTitleFromFolder(grandName);
     else if (parentName) show = showTitleFromFolder(parentName);
   }
+  // Under a category like "TV SERIES", the folder right below it names the show. It is the grouping
+  // key, so differently named season packs ("Kimetsu no Yaiba (Demon Slayer) {Season 1}" and
+  // "Kimetsu no Yaiba S02") collapse into one show, and when it reads cleanly it is the search title too.
+  let groupTitle = null;
+  if (hintShow && ctx.showFolder) {
+    const folder = showTitleFromFolder(ctx.showFolder);
+    if (folder.title && folder.title.length >= 2 && !GENERIC_NAMES.test(folder.title)) {
+      groupTitle = folder.title;
+      const clean = folder.title.split(/\s+/).length <= 5 && !/[-–—:|]/.test(folder.title);
+      if (clean || !show.title) show = { ...folder, year: folder.year || show.year || null, languages: show.languages };
+      else if (!show.year && folder.year) show = { ...show, year: folder.year };
+    }
+  }
   if (!show.title) return null;
   if (episodeTitle && episodeTitle.split(/\s+/).every((w) => isTagWord(w) || /^\d+$/.test(w))) episodeTitle = null;
   if (!show.year) {
@@ -368,7 +467,7 @@ function parseEpisodePath(filePath, rootDir) {
     const folderYear = (grandName && showTitleFromFolder(grandName).year) || (parentName && showTitleFromFolder(parentName).year) || null;
     if (folderYear) show = { ...show, year: folderYear };
   }
-  return { show: { title: show.title, year: show.year || null }, season, episode, episodeEnd, episodeTitle, languages, weak };
+  return { show: { title: show.title, year: show.year || null }, groupTitle, season, episode, episodeEnd, episodeTitle, languages, weak };
 }
 
 /** "Show Name/Show Name - 05.mkv" or "Show Name/Episode 5.mkv": is the parent plausibly a show folder? */
@@ -385,7 +484,8 @@ function looksLikeShowFolder(parentName, base) {
  * @returns {{kind:'movie', title, year, languages, source} | {kind:'episode', show, season, episode, episodeEnd, episodeTitle, languages}}
  */
 function parseMediaPath(filePath, rootDir) {
-  const ep = parseEpisodePath(filePath, rootDir);
+  const ctx = pathContext(filePath, rootDir);
+  const ep = parseEpisodePath(filePath, rootDir, ctx);
   if (ep) return { kind: 'episode', ...ep };
   return { kind: 'movie', ...parseMoviePath(filePath, rootDir) };
 }
@@ -407,6 +507,8 @@ module.exports = {
   LANGUAGE_TAGS,
   parseEpisodePath,
   parseMediaPath,
+  pathContext,
+  folderCategory,
   seasonFromFolder,
   VIDEO_EXTS,
   PARTIAL_EXTS,

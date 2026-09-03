@@ -48,9 +48,18 @@ still lists your files, just with placeholder posters.
 
 - **TMDB API key**: free at <https://www.themoviedb.org/settings/api>
   (either the "API Key" or the "API Read Access Token" works). Paste it in
-  Settings (gear icon, top right).
+  Settings (bottom of the left rail).
+
+The layout is Netflix's TV app: a left rail with **Search, Home, Series,
+Movies** and, at the bottom, **Rescan** and **Settings** (hover or focus it to
+see the labels). Home mixes everything; Series and Movies show only their kind.
+The "Browse by" chips under the hero regroup the current page by genre,
+language, rating or decade. Rows like Recently added, All titles, Downloading
+and Needs a match sit at the bottom of each page.
 - **Movies folder**: change it in Settings. Sub-folders are scanned too.
 - **Ignore files smaller than**: defaults to 300 MB so samples, clips and trailers are skipped.
+  This applies to movies. TV episodes are legitimately small, so they only have to clear a
+  fixed 30 MB floor.
 
 Data lives in `~/Library/Application Support/homeflix/` on macOS and
 `%APPDATA%\homeflix\` on Windows: `settings.json`, `library.json` (+ `.bak`),
@@ -103,6 +112,18 @@ names, stills and overviews. The show view lists seasons and episodes, shows
 what's next, and the player continues to the next episode automatically
 (press **N** to skip ahead). Movies in arbitrary nested subfolders are fine too.
 
+**Your folder names are the strongest signal.** A folder called `TV SERIES`,
+`Anime Series`, `Shows` or `Web Series` means everything beneath it is a show,
+and the folder right below it names the show: `TV SERIES/DEMON SLAYER/<any
+season packs>/…` is one card, however each release group named the files.
+Bare episode numbers (`001 - Pilot.mkv`, `Show - 05.mkv`, `02 Show Episode 01
+Title.mp4`) are trusted there. A folder called `MOVIES`, `Malayalam Movies`,
+`Bollywood` or `Hollywood` means movies, and only an explicit `S01E02`-style
+marker can turn a file into an episode. Language and genre sub-folders in
+between (`Series/English/Dark/…`) are skipped. Two show records that resolve to
+the same TMDB show are merged into one card after matching, and a show that
+isn't matched yet searches with the title most of its files agree on.
+
 ## Recommendations
 
 "Recommended for you" and "Because you watched …" rows are computed locally
@@ -124,6 +145,28 @@ that type. Install [IINA](https://iina.io) or [VLC](https://www.videolan.org)
 on macOS, or [VLC](https://www.videolan.org) / [MPC-HC](https://github.com/clsid2/mpc-hc)
 on Windows, for those files. **Show in Finder** / **Show in Explorer** opens
 the file's folder.
+
+## Remote and game controller
+
+Homeflix can be driven like a TV app. The arrow keys move a focus ring across
+cards, buttons, chips and episodes; **Enter** opens, **Space** plays the
+focused card, **Esc** (or **Backspace**) goes back. Any controller the
+browser's Gamepad API sees (Xbox, PlayStation, generic USB or Bluetooth pads)
+works the same way, no setup needed:
+
+| Controller | Browsing | Player |
+|---|---|---|
+| D-pad / left stick | move focus | seek ±10 s, volume |
+| A | open card / press button | play / pause |
+| X | play the focused card | play / pause |
+| B | back (close, leave) | back |
+| Y | jump to search | fullscreen |
+| Start | open / play | play / pause |
+| RB | | next episode |
+| Select / Back | home | |
+
+Right after a controller is used the focused item gets a white ring; moving
+the mouse hides it again. The code is `src/renderer/components/remote.js`.
 
 ## Fixing a wrong match
 
@@ -149,7 +192,8 @@ src/main/services/tmdb.js     TMDB client with timeouts + error kinds
 src/main/services/library.js  scan/reconcile/enrich orchestration
 src/main/services/stream.js   Range-capable file responses
 src/preload/preload.js        window.api bridge
-src/renderer/                 UI (plain HTML/CSS/JS); components/show.js is the season/episode view
+src/renderer/                 UI (plain HTML/CSS/JS); components/show.js is the season/episode view,
+                              components/remote.js is arrow-key / gamepad navigation
 build/dist.js                 npm run dist: @electron/packager options per platform
 build/make-icon.js            npm run icon: renders icon.png + icon.ico
 test/                         node:test suites, fixtures, mock TMDB, smoke script
@@ -160,7 +204,7 @@ CSP, and `media://` only serves files that are in the library or the image cache
 
 Platform notes: the main process hides the native title bar on every platform;
 macOS keeps its traffic lights, Windows/Linux get Chromium's caption buttons
-overlaid top-right and the renderer pads the top bar for them (`data-platform`
+overlaid top-right and the renderer keeps the top strip clear for them (`data-platform`
 on `<body>`, set from `window.api.platform`). Test fixtures create sparse files
 with `fsutil` and unreadable folders with `icacls` on Windows, `chmod` elsewhere.
 `npm run smoke` runs from Git Bash on Windows too.

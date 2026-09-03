@@ -20,6 +20,9 @@ const { parseMediaPath, parseMoviePath, stripPartialSuffix, PARSER_VERSION } = r
 const { METADATA_VERSION } = require('./tmdb');
 
 const CONCURRENCY = 4;
+// The user's size threshold is for movies (skips samples, trailers, clips). Episodes are legitimately
+// small (a 720p episode is 100-250 MB), so they only need to clear this floor.
+const EPISODE_MIN_MB = 30;
 const DOWNLOADING_MTIME_MS = 2 * 60 * 1000; // modified in the last 2 min => probably still being written
 const FOLLOWUP_SCAN_MS = 90 * 1000;
 const PERIODIC_SCAN_MS = 10 * 60 * 1000;
@@ -91,7 +94,7 @@ class LibraryService {
 
     let scan;
     try {
-      scan = await scanDirectory(settings.moviesDir, { minFileSizeMB: settings.minFileSizeMB });
+      scan = await scanDirectory(settings.moviesDir, { minFileSizeMB: Math.min(Number(settings.minFileSizeMB) || 0, EPISODE_MIN_MB) });
     } catch (err) {
       if (err.code === 'FOLDER_MISSING') {
         // Do NOT touch the library: the drive may simply be unplugged.
@@ -119,6 +122,21 @@ class LibraryService {
       if (!cur || (cur.partial && !f.partial) || (cur.partial === f.partial && f.size > cur.size)) byId.set(id, f);
     }
 
+    // Apply the movie size threshold now that we know what each small file is. Parses are cached
+    // for the entry-creation loop below.
+    const parsed = new Map();
+    const parseOf = (id, f) => {
+      if (!parsed.has(id)) parsed.set(id, parseMediaPath(f.path, root));
+      return parsed.get(id);
+    };
+    const minMovieBytes = Math.max(0, Number(settings.minFileSizeMB) || 0) * 1024 * 1024;
+    for (const [id, f] of byId) {
+      if (f.partial || f.size >= minMovieBytes) continue;
+      const existing = lib.movies[id];
+      const kind = existing && existing.parserVersion === PARSER_VERSION && !existing.manualMatch ? existing.kind : parseOf(id, f).kind;
+      if (kind !== 'episode') byId.delete(id); // too small for a movie: treated as absent
+    }
+
     const newFiles = [];
     for (const [id, f] of byId) {
       const existing = lib.movies[id];
@@ -137,7 +155,7 @@ class LibraryService {
         existing.missing = false;
         if (!existing.kind) existing.kind = 'movie';
         if (existing.parserVersion !== PARSER_VERSION && !existing.manualMatch) {
-          this._applyParse(existing, parseMediaPath(f.path, root), { reparse: true });
+          this._applyParse(existing, parseOf(id, f), { reparse: true });
           idsChanged = true; // kind may have changed
         }
         if (force && existing.status === 'unmatched' && !existing.manualMatch) existing.status = 'pending';
@@ -192,7 +210,7 @@ class LibraryService {
         addedAt: carry ? carry.addedAt : nowIso,
         manualMatch: false,
       };
-      this._applyParse(entry, parseMediaPath(f.path, root), { reparse: false });
+      this._applyParse(entry, parseOf(id, f), { reparse: false });
       if (carry && carry.kind === entry.kind) {
         if (entry.kind === 'movie' && carry.tmdb) {
           entry.tmdb = carry.tmdb;
@@ -233,12 +251,14 @@ class LibraryService {
     const wasKind = entry.kind || 'movie';
     const prev = entry.parsed || {};
     if (parsed.kind === 'episode') {
-      const showKey = showKeyFor(parsed.show.title);
+      // Group by the show folder when the path has one ("TV SERIES/DEMON SLAYER/..."), else by parsed title.
+      const showKey = showKeyFor(parsed.groupTitle || parsed.show.title);
       const changed = wasKind !== 'episode' || prev.title !== parsed.show.title || prev.season !== parsed.season || prev.episode !== parsed.episode || entry.showKey !== showKey;
       entry.kind = 'episode';
       entry.showKey = showKey;
       entry.parsed = {
         title: parsed.show.title,
+        groupTitle: parsed.groupTitle || null,
         year: parsed.show.year,
         languages: parsed.languages || [],
         season: parsed.season,
@@ -301,11 +321,17 @@ class LibraryService {
   _reconcileShows(force) {
     const lib = this.library;
     const referenced = new Set();
+    const titles = new Map(); // showKey -> Map(title -> count), to pick the commonest title for unmatched shows
     const nowIso = new Date().toISOString();
     let changed = false;
     for (const m of Object.values(lib.movies)) {
       if (m.kind !== 'episode') continue;
       referenced.add(m.showKey);
+      if (m.parsed.title) {
+        if (!titles.has(m.showKey)) titles.set(m.showKey, new Map());
+        const t = titles.get(m.showKey);
+        t.set(m.parsed.title, (t.get(m.parsed.title) || 0) + 1);
+      }
       let show = lib.shows[m.showKey];
       if (!show) {
         show = lib.shows[m.showKey] = {
@@ -337,7 +363,52 @@ class LibraryService {
       if (!referenced.has(key)) {
         delete lib.shows[key];
         changed = true;
+        continue;
       }
+      // Not matched yet: search with the title most of the files agree on (files in one folder are
+      // often named by different release groups; a single odd file must not pick the search term).
+      const show = lib.shows[key];
+      const counts = titles.get(key);
+      if (show.status !== 'matched' && !show.manualMatch && counts) {
+        const best = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].length - b[0].length)[0][0];
+        if (best && show.title !== best) {
+          show.title = best;
+          changed = true;
+        }
+      }
+    }
+    return changed;
+  }
+
+  /**
+   * Two show records that resolved to the same TMDB show (different folder or release naming for
+   * different seasons) become one card: episodes are re-keyed onto the surviving record.
+   */
+  _mergeDuplicateShows() {
+    const lib = this.library;
+    const byTmdb = new Map();
+    let changed = false;
+    for (const show of Object.values(lib.shows)) {
+      if (show.status !== 'matched' || !show.tmdb) continue;
+      const keep = byTmdb.get(show.tmdb.id);
+      if (!keep) {
+        byTmdb.set(show.tmdb.id, show);
+        continue;
+      }
+      const [into, from] = show.manualMatch && !keep.manualMatch ? [show, keep] : [keep, show];
+      for (const m of Object.values(lib.movies)) {
+        if (m.kind === 'episode' && m.showKey === from.key) {
+          m.showKey = into.key;
+          this._dirtyIds.add(m.id);
+        }
+      }
+      for (const [n, season] of Object.entries(from.seasons || {})) if (!into.seasons[n]) into.seasons[n] = season;
+      into.manualMatch = into.manualMatch || from.manualMatch;
+      if (from.addedAt && (!into.addedAt || from.addedAt < into.addedAt)) into.addedAt = from.addedAt;
+      delete lib.shows[from.key];
+      byTmdb.set(show.tmdb.id, into);
+      this._dirtyShows.add(into.key);
+      changed = true;
     }
     return changed;
   }
@@ -443,8 +514,9 @@ class LibraryService {
       }
     };
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, total) }, worker));
+    const merged = this._mergeDuplicateShows();
     await this.store.saveLibrary(lib);
-    if (done > 0) this._emitChanged();
+    if (done > 0 || merged) this._emitChanged();
     else this._flushUpdates(true);
     this._progress({ phase: 'idle', done, total, current: '', error: fatal || undefined }, true);
     if (fatal === 'TMDB_UNREACHABLE') this._scheduleRetry();
@@ -565,11 +637,14 @@ class LibraryService {
     const episodes = Object.values(lib.movies).filter((e) => e.kind === 'episode' && e.showKey === showKey);
     await this._applyTvId(show, tvId, episodes);
     show.manualMatch = true;
+    // The user may have pointed this at a show we already have under another folder: merge them.
+    this._mergeDuplicateShows();
+    const survivor = lib.shows[showKey] || Object.values(lib.shows).find((s) => s.tmdb && s.tmdb.id === tvId) || show;
     await this.store.saveLibrary();
-    this._dirtyShows.add(showKey);
+    this._dirtyShows.add(survivor.key);
     for (const e of episodes) this._dirtyIds.add(e.id);
     this._emitChanged();
-    return this.publicShow(show);
+    return this.publicShow(survivor);
   }
 
   retryPending() {

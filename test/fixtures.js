@@ -179,6 +179,7 @@ function mockTmdb() {
     calls,
     hasKey: true,
     unknownTitles: new Set(),
+    aliases: new Map(), // show title -> canonical title, so two names resolve to one TMDB id
     failNext(kind) {
       failNext = kind;
     },
@@ -205,7 +206,8 @@ function mockTmdb() {
         throw new TmdbError(k, `mock ${k}`);
       }
       if (this.unknownTitles.has(title)) return null;
-      return { id: 5000 + idFor(title), title, year };
+      const canonical = this.aliases.get(title) || title;
+      return { id: 5000 + idFor(canonical), title: canonical, year };
     },
     async tvDetails(id) {
       calls.tvDetails++;
