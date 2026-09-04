@@ -169,6 +169,12 @@ works the same way, no setup needed:
 Right after a controller is used the focused item gets a white ring; moving
 the mouse hides it again. The code is `src/renderer/components/remote.js`.
 
+If a controller does nothing: Chromium only exposes a pad after you have
+clicked inside the window once and pressed a button on the pad, and Windows
+must see it as a game controller (Win+R, `joy.cpl` lists them). **Settings →
+Controller** shows live what the app receives. Generic joysticks that report
+the d-pad as a hat switch, and pads that only expose sticks, are handled.
+
 ## Fixing a wrong match
 
 Open the movie and use **Fix match** to search TMDB yourself; manual matches

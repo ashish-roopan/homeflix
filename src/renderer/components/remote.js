@@ -20,6 +20,8 @@ window.UI = window.UI || {};
   const REPEAT_MS = 110;
   const held = new Map(); // gamepad index -> Map(button -> { since, last })
   let raf = 0;
+  let announced = new Set(); // gamepad ids we have shown a toast for
+  const diag = { pads: [], lastAction: '', lastActionAt: 0 }; // shown in Settings > Controller
 
   const inPlayer = () => document.body.dataset.view === 'player' && overlay.hidden;
   const scope = () => (overlay.hidden ? document.getElementById('view') : overlay);
@@ -168,8 +170,11 @@ window.UI = window.UI || {};
   });
 
   // ---- gamepad ----
+  const NAMES = { 0: 'A', 1: 'B', 2: 'X', 3: 'Y', 4: 'LB', 5: 'RB', 8: 'Select', 9: 'Start', 12: 'Up', 13: 'Down', 14: 'Left', 15: 'Right' };
   function fire(button) {
     activate();
+    diag.lastAction = NAMES[button] || `button ${button}`;
+    diag.lastActionAt = Date.now();
     const dir = DIRS[button];
     if (dir) return inPlayer() ? press(ARROW_OF[dir]) : move(dir);
     switch (button) {
@@ -184,21 +189,49 @@ window.UI = window.UI || {};
     }
   }
 
+  /**
+   * Everything currently pressed on a pad, normalised to standard button indices. Sticks (first two
+   * axis pairs) count as the d-pad. Generic DirectInput joysticks report their d-pad as a "hat"
+   * on axis 9 with eight positions and a >1 value when released; that is mapped too.
+   */
+  function pressedOn(gp) {
+    const pressed = new Set();
+    gp.buttons.forEach((b, i) => (b.pressed || b.value > 0.5) && pressed.add(i));
+    for (const [xi, yi] of [[0, 1], [2, 3]]) {
+      const ax = gp.axes[xi] || 0;
+      const ay = gp.axes[yi] || 0;
+      if (ax < -0.55) pressed.add(BTN.LEFT);
+      if (ax > 0.55) pressed.add(BTN.RIGHT);
+      if (ay < -0.55) pressed.add(BTN.UP);
+      if (ay > 0.55) pressed.add(BTN.DOWN);
+    }
+    if (gp.mapping !== 'standard' && gp.axes.length > 9) {
+      const hat = gp.axes[9];
+      if (hat >= -1 && hat <= 1) {
+        const pos = Math.round(((hat + 1) / 2) * 7); // 0 up, 1 up-right, 2 right ... 7 up-left
+        if ([7, 0, 1].includes(pos)) pressed.add(BTN.UP);
+        if ([1, 2, 3].includes(pos)) pressed.add(BTN.RIGHT);
+        if ([3, 4, 5].includes(pos)) pressed.add(BTN.DOWN);
+        if ([5, 6, 7].includes(pos)) pressed.add(BTN.LEFT);
+      }
+    }
+    return pressed;
+  }
+
   function poll(now) {
     const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()).filter(Boolean) : [];
+    diag.pads = pads.map((gp) => ({ id: gp.id, mapping: gp.mapping || 'none', buttons: gp.buttons.length, axes: Array.from(gp.axes).map((a) => Math.round(a * 100) / 100), pressed: [...pressedOn(gp)] }));
     if (!pads.length) {
       raf = 0;
       return;
     }
     for (const gp of pads) {
-      const pressed = new Set();
-      gp.buttons.forEach((b, i) => (b.pressed || b.value > 0.5) && pressed.add(i));
-      const ax = gp.axes[0] || 0;
-      const ay = gp.axes[1] || 0;
-      if (ax < -0.55) pressed.add(BTN.LEFT);
-      if (ax > 0.55) pressed.add(BTN.RIGHT);
-      if (ay < -0.55) pressed.add(BTN.UP);
-      if (ay > 0.55) pressed.add(BTN.DOWN);
+      if (!announced.has(gp.id)) {
+        announced.add(gp.id);
+        UI.toast(`Controller connected: ${gp.id.slice(0, 48)}. D-pad moves, A opens, X plays, B goes back.`, { ms: 5000 });
+        console.log('[remote] gamepad:', gp.id, 'mapping:', gp.mapping, 'buttons:', gp.buttons.length, 'axes:', gp.axes.length);
+      }
+      const pressed = pressedOn(gp);
       const h = held.get(gp.index) || new Map();
       for (const b of pressed) {
         const st = h.get(b);
@@ -216,17 +249,19 @@ window.UI = window.UI || {};
     raf = requestAnimationFrame(poll);
   }
 
-  window.addEventListener('gamepadconnected', (e) => {
-    UI.toast(`Controller connected. D-pad moves, A opens, X plays, B goes back.`, { ms: 5000 });
+  window.addEventListener('gamepadconnected', () => {
     if (!raf) raf = requestAnimationFrame(poll);
-    console.log('[remote] gamepad connected:', e.gamepad.id);
   });
-  window.addEventListener('gamepaddisconnected', () => {
+  window.addEventListener('gamepaddisconnected', (e) => {
     held.clear();
+    announced.delete(e.gamepad.id);
     UI.toast('Controller disconnected.', { ms: 2500 });
   });
-  // A pad plugged in before launch only announces itself on its first button press; start polling anyway.
-  if (navigator.getGamepads && Array.from(navigator.getGamepads()).some(Boolean)) raf = requestAnimationFrame(poll);
+  // Chromium only exposes a pad after the page has had a click/keypress and the pad a button press,
+  // and a pad plugged in before launch fires no event until then: keep checking cheaply.
+  setInterval(() => {
+    if (!raf && navigator.getGamepads && Array.from(navigator.getGamepads()).some(Boolean)) raf = requestAnimationFrame(poll);
+  }, 1000);
 
-  UI.remote = { move, back, press, home: null, search: null };
+  UI.remote = { move, back, press, home: null, search: null, diag };
 })();

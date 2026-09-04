@@ -64,6 +64,36 @@ UI.renderSettings = function renderSettings(container, settings, { firstRun, onS
   keyInput.addEventListener('keydown', (e) => e.key === 'Enter' && save());
   if (!moviesDir) folderLabel.classList.add('is-empty');
 
+  /** Live view of what the Gamepad API reports, so a joystick that does nothing can be diagnosed. */
+  function renderControllerPanel() {
+    const panel = h('div.controller-panel');
+    const refresh = () => {
+      if (!panel.isConnected) return clearInterval(timer);
+      const diag = (UI.remote && UI.remote.diag) || { pads: [] };
+      UI.clear(panel);
+      if (!diag.pads.length) {
+        panel.appendChild(h('div.controller-none',
+          h('div', h('strong', 'No controller detected.')),
+          h('p.settings-help', 'Plug in or pair the controller, click once inside this window, then press any button on it. Windows must recognise it as a game controller: press Win+R, run ', h('span.mono', 'joy.cpl'), ' and check it is listed there.')
+        ));
+        return;
+      }
+      for (const p of diag.pads) {
+        panel.appendChild(h('div.controller-pad',
+          h('div', h('strong', p.id.slice(0, 60)), h('span.muted', `  ·  ${p.mapping === 'standard' ? 'standard layout' : 'generic layout'} · ${p.buttons} buttons · ${p.axes.length} axes`)),
+          h('div.controller-live',
+            h('span.muted', 'Pressed: '), h('span.mono', p.pressed.length ? p.pressed.map((b) => ({ 0: 'A', 1: 'B', 2: 'X', 3: 'Y', 4: 'LB', 5: 'RB', 8: 'Select', 9: 'Start', 12: 'Up', 13: 'Down', 14: 'Left', 15: 'Right' })[b] || `#${b}`).join(' ') : '–'),
+            h('span.muted', '   Axes: '), h('span.mono', p.axes.join(' '))
+          ),
+          diag.lastAction ? h('div.settings-help', `Last action: ${diag.lastAction}`) : null
+        ));
+      }
+    };
+    const timer = setInterval(refresh, 150);
+    refresh();
+    return panel;
+  }
+
   UI.clear(container);
   container.appendChild(
     h('div.settings',
@@ -89,6 +119,9 @@ UI.renderSettings = function renderSettings(container, settings, { firstRun, onS
 
         h('label.settings-label', 'Ignore files smaller than (MB)'),
         h('div.settings-inline', minSize, h('span.settings-help-inline', 'Skips samples and clips. Set 0 to include everything.')),
+
+        h('label.settings-label', 'Controller'),
+        renderControllerPanel(),
 
         error,
         h('div.settings-actions', saveBtn)
