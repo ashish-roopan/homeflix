@@ -386,11 +386,11 @@ body[data-platform="darwin"] .sidebar { padding-top: 44px; } /* clear the traffi
 body.remote .sidebar-item:focus, body.remote .sidebar-brand:focus { outline: none; background: rgba(255,255,255,0.12); color: var(--fg); border-radius: 0; }
 body[data-view="player"] .sidebar { display: none; }
 
-/* rotating hero: the incoming banner fades in over the old one's place */
-.hero-enter .hero-backdrop { animation: heroIn 0.9s ease both; }
-.hero-enter .hero-shade { animation: heroIn 0.9s ease both; }
-.hero-enter .hero-content { animation: heroText 0.7s ease 0.15s both; }
-@keyframes heroIn { from { opacity: 0; } to { opacity: 1; } }
+/* rotating hero: the outgoing banner is lifted on top and fades out while the new one fades in beneath */
+.hero-stage { position: relative; }
+.hero-leaving { position: absolute; inset: 0; z-index: 3; pointer-events: none; animation: heroOut 1.2s ease both; }
+.hero-enter .hero-content { animation: heroText 0.9s ease 0.35s both; }
+@keyframes heroOut { from { opacity: 1; } to { opacity: 0; } }
 @keyframes heroText { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
 
 .controller-panel { background: #262626; border-radius: 4px; padding: 12px 14px; font-size: 14px; display: flex; flex-direction: column; gap: 8px; }

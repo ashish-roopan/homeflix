@@ -51,7 +51,7 @@ still lists your files, just with placeholder posters.
   (either the "API Key" or the "API Read Access Token" works). Paste it in
   Settings (bottom of the left rail).
 - **Movies folder**: change it in Settings. Sub-folders are scanned too.
-- **Ignore files smaller than**: defaults to 300 MB so samples, clips and trailers are skipped.
+- **Ignore files smaller than**: defaults to 50 MB so samples and clips are skipped.
   This applies to movies. TV episodes are legitimately small, so they only have to clear a
   fixed 30 MB floor.
 

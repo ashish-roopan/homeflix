@@ -16,7 +16,7 @@ const DEFAULT_MOVIES_DIR = process.platform === 'win32' ? 'E:\\' : path.join(os.
 const DEFAULT_SETTINGS = {
   moviesDir: null,
   tmdbApiKey: null,
-  minFileSizeMB: 300,
+  minFileSizeMB: 50,
 };
 
 const EMPTY_LIBRARY = () => ({ version: 3, updatedAt: null, movies: {}, shows: {} });

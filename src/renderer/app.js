@@ -295,14 +295,20 @@
     clearInterval(state.heroTimer);
     state.heroTimer = setInterval(() => {
       if (state.view !== 'home' || state.query || !document.getElementById('overlay').hidden || document.hidden) return;
-      const heroEl = viewEl.querySelector('.hero');
-      if (!heroEl || heroEl.matches(':hover') || heroEl.contains(document.activeElement)) return;
+      const stage = viewEl.querySelector('.hero-stage');
+      const heroEl = stage && stage.querySelector('.hero:not(.hero-leaving)');
+      if (!heroEl || stage.querySelector('.hero-leaving') || heroEl.matches(':hover') || heroEl.contains(document.activeElement)) return;
       const pool = heroPool(pageItems(allItems()));
       if (pool.length < 2) return;
       state.heroIndex[state.page] = ((state.heroIndex[state.page] || 0) + 1) % pool.length;
       const fresh = UI.renderHero(pool[state.heroIndex[state.page]], { onPlay: handlers.onPlay, onInfo: handlers.onOpen });
+      // Crossfade: the new banner takes the old one's place in the layout while the old one, lifted
+      // out of flow on top of it, fades away. Nothing below moves.
       fresh.classList.add('hero-enter');
-      heroEl.replaceWith(fresh);
+      heroEl.classList.add('hero-leaving');
+      heroEl.inert = true;
+      stage.insertBefore(fresh, heroEl);
+      setTimeout(() => heroEl.remove(), 1300);
     }, HERO_ROTATE_MS);
   }
 
@@ -708,7 +714,7 @@
       const featured = pickFeatured(pitems.length ? pitems : items);
       const rowOpts = { onSeeAll: openList };
       body = h('div.home-body',
-        UI.renderHero(featured, { onPlay: handlers.onPlay, onInfo: handlers.onOpen }),
+        h('div.hero-stage', UI.renderHero(featured, { onPlay: handlers.onPlay, onInfo: handlers.onOpen })),
         h('div.rows',
           renderBrowseBar(),
           pitems.length
@@ -722,7 +728,11 @@
     UI.clear(viewEl);
     viewEl.appendChild(home);
     viewEl.appendChild(renderSidebar());
+    // Restore the scroll position instantly: the container scrolls smoothly for the user, but a
+    // re-render (titles getting identified, rows changing) must not visibly glide back into place.
+    home.style.scrollBehavior = 'auto';
     home.scrollTop = scrollY;
+    requestAnimationFrame(() => { home.style.scrollBehavior = ''; });
     home.addEventListener('scroll', () => topbar.classList.toggle('is-scrolled', home.scrollTop > 20), { passive: true });
     topbar.classList.toggle('is-scrolled', scrollY > 20 || Boolean(q));
     renderProgress();

@@ -25,7 +25,7 @@ UI.renderSettings = function renderSettings(container, settings, { firstRun, onS
     type: 'number',
     min: 0,
     step: 10,
-    value: settings.minFileSizeMB ?? 300,
+    value: settings.minFileSizeMB ?? 50,
   });
   const error = h('div.settings-error', { hidden: true });
   const saveBtn = h('button.btn.btn-primary', { type: 'button' }, UI.icon('check'), h('span', firstRun ? 'Save & scan' : 'Save'));
