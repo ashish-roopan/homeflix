@@ -111,8 +111,27 @@ class TmdbClient {
         results = await run(words.slice(0, n).join(' '), year);
       }
     }
-    if (!results.length) return null;
+    if (!results.length) return this._fuzzyFind(title, year, run);
     return pickBest(results, title, year);
+  }
+
+  /**
+   * Misspelt file names ("Captain Philips", "Love Actuallly", "Sillu Karuppatty"): TMDB's search
+   * is not tolerant of typos, so search by the most distinctive single words and accept only a
+   * result whose title is nearly identical to ours (edit-distance similarity >= FUZZY_MIN).
+   */
+  async _fuzzyFind(title, year, run) {
+    const words = norm(title).split(' ').filter((w) => w.length >= 4 && !STOP_WORDS.has(w)).sort((a, b) => b.length - a.length);
+    let best = null;
+    for (const w of words.slice(0, MAX_FUZZY_SEARCHES)) {
+      const results = await run(w, year);
+      for (const r of results) {
+        const s = Math.max(similarity(title, r.title), similarity(title, r.originalTitle));
+        if (s >= FUZZY_MIN && (!best || s > best.s)) best = { r, s };
+      }
+      if (best && best.s >= 0.9) break;
+    }
+    return best ? best.r : null;
   }
 
   // ---------------------------------------------------------------- TV
@@ -281,6 +300,27 @@ function norm(s) {
   return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+const STOP_WORDS = new Set(['the', 'and', 'with', 'from', 'movie', 'film', 'part', 'chapter', 'edition']);
+const MAX_FUZZY_SEARCHES = 3;
+const FUZZY_MIN = 0.8;
+
+/** 0..1 similarity of two titles: 1 - edit distance / longer length ("captain philips" vs "captain phillips" = 0.94). */
+function similarity(a, b) {
+  a = norm(a);
+  b = norm(b);
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const m = a.length;
+  const n = b.length;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return 1 - prev[n] / Math.max(m, n);
+}
+
 function pickBest(results, title, year) {
   const nt = norm(title);
   let best = null;
@@ -307,4 +347,4 @@ function pickBest(results, title, year) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-module.exports = { TmdbClient, TmdbError, IMG, METADATA_VERSION };
+module.exports = { TmdbClient, TmdbError, IMG, METADATA_VERSION, similarity };

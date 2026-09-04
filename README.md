@@ -183,6 +183,11 @@ the d-pad as a hat switch, and pads that only expose sticks, are handled.
 Open the movie and use **Fix match** to search TMDB yourself; manual matches
 survive rescans. Right-click the Rescan button to retry every unmatched file.
 
+Misspelt file names are handled automatically: when the normal search finds
+nothing, the app searches TMDB by the title's most distinctive words and accepts
+a result only if its title is nearly identical to the file's (*Captain Philips*
+→ *Captain Phillips*, *Sillu Karuppatty* → *Sillu Karupatti*).
+
 ## Tests
 
 ```bash
