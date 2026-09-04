@@ -160,6 +160,11 @@ window.UI = window.UI || {};
 
   // ---- keyboard ----
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'F11') {
+      e.preventDefault();
+      if (window.api.toggleFullscreen) window.api.toggleFullscreen().catch(() => {});
+      return;
+    }
     const dir = KEY_DIRS[e.key];
     if (!dir || e.defaultPrevented || inPlayer()) return;
     const a = document.activeElement;

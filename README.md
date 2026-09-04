@@ -14,6 +14,9 @@ the top rotates through recent and top-rated titles every few seconds.
 **Windows**: run `Homeflix.exe` from `dist\Homeflix-win32-x64\` (pin it to Start
 or the taskbar from there).
 
+The window opens full screen, like a TV app. **F11** toggles between full
+screen and a normal window.
+
 From source, on either platform (needs Node.js 20 or newer):
 
 ```bash

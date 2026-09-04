@@ -20,6 +20,7 @@ function on(channel, cb) {
 
 contextBridge.exposeInMainWorld('api', {
   platform: process.platform, // 'darwin' | 'win32' | 'linux': UI wording and title-bar layout
+  toggleFullscreen: () => call('window:toggleFullscreen'),
   getSettings: () => call('settings:get'),
   saveSettings: (patch) => call('settings:save', patch),
   getNotices: () => call('store:notices'),

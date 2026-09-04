@@ -52,6 +52,8 @@ async function createWindow() {
     minHeight: 600,
     title: 'Homeflix',
     backgroundColor: '#141414',
+    fullscreen: true, // TV-style: fills the screen on launch; F11 toggles
+
     // macOS: hide the title bar but keep the traffic lights inset. Windows/Linux: hide it and
     // let Chromium draw the caption buttons over the top bar (styles.css pads the bar for them).
     ...(process.platform === 'darwin'

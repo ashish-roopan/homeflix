@@ -70,6 +70,13 @@ function registerIpc({ store, tmdb, library }) {
     return true;
   });
 
+  handle('window:toggleFullscreen', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return false;
+    win.setFullScreen(!win.isFullScreen());
+    return win.isFullScreen();
+  });
+
   handle('shell:openUrl', (_e, url) => {
     if (/^https:\/\/(www\.)?themoviedb\.org\//.test(String(url))) return shell.openExternal(url);
     throw new Error('URL not allowed');
