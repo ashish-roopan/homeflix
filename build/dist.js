@@ -40,8 +40,9 @@ const opts = {
   arch,
   out: path.join(root, 'dist'),
   overwrite: true,
-  // build/ stays out except the icons, which main.js uses for the window on Windows/Linux.
-  ignore: [/^\/(test|dist|\.git|\.claude)($|\/)/, /^\/build\/(?!icon\.(ico|png)$)/, /\.command$/],
+  // build/ stays out except the icons (window icon on Windows/Linux) and, when present, the
+  // gitignored default-key.json that seeds the TMDB key for installs that never had one set.
+  ignore: [/^\/(test|dist|\.git|\.claude)($|\/)/, /^\/build\/(?!icon\.(ico|png)$|default-key\.json$)/, /\.command$/],
 };
 
 if (platform === 'darwin') {

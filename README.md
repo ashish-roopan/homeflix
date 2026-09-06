@@ -65,6 +65,12 @@ The "Browse by" chips under the hero regroup the current page by genre,
 language, rating or decade. Rows like Recently added, All titles, Downloading
 and Needs a match sit at the bottom of each page.
 
+**Handing the app to someone else:** put your key in `build/default-key.json`
+as `{ "tmdbApiKey": "..." }` before `npm run dist`. The file is gitignored, gets
+bundled into the app, and is used whenever no key has been saved in Settings,
+so a fresh Windows account or a reset data folder still gets posters without
+anyone having to know what an API key is.
+
 Data lives in `~/Library/Application Support/homeflix/` on macOS and
 `%APPDATA%\homeflix\` on Windows: `settings.json`, `library.json` (+ `.bak`),
 `playback.json`, and `images/`. Delete the folder to start fresh.

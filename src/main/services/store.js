@@ -19,6 +19,10 @@ const DEFAULT_SETTINGS = {
   minFileSizeMB: 50,
 };
 
+// Optional, gitignored, bundled by `npm run dist`: { "tmdbApiKey": "..." }. Used when no key was ever
+// saved, so the app works for someone who does not know what an API key is.
+const BUNDLED_KEY_FILE = path.join(__dirname, '..', '..', '..', 'build', 'default-key.json');
+
 const EMPTY_LIBRARY = () => ({ version: 3, updatedAt: null, movies: {}, shows: {} });
 const BACKUP_INTERVAL_MS = 10 * 60 * 1000;
 const COALESCE_MS = 2000;
@@ -49,6 +53,13 @@ class Store {
     this._settings = { ...DEFAULT_SETTINGS, ...sanitizeSettings(settings) };
     if (!this._settings.moviesDir && (await isDirectory(DEFAULT_MOVIES_DIR))) {
       this._settings.moviesDir = DEFAULT_MOVIES_DIR;
+    }
+    if (!this._settings.tmdbApiKey) {
+      const bundled = await readBundledKey();
+      if (bundled) {
+        this._settings.tmdbApiKey = bundled;
+        await this._write(this.settingsPath, this._settings); // persist so Settings shows it and it survives rebuilds
+      }
     }
 
     const lib = await this._readWithRecovery(this.libraryPath, null, (v) => v && typeof v === 'object' && v.movies && typeof v.movies === 'object');
@@ -254,6 +265,15 @@ function sanitizeLibrary(lib) {
     }
   }
   return out;
+}
+
+async function readBundledKey() {
+  try {
+    const v = JSON.parse(await fsp.readFile(BUNDLED_KEY_FILE, 'utf8'));
+    return v && typeof v.tmdbApiKey === 'string' && v.tmdbApiKey.trim() ? v.tmdbApiKey.trim() : null;
+  } catch {
+    return null; // no bundled key: the user pastes one in Settings
+  }
 }
 
 async function isDirectory(p) {
